@@ -1,0 +1,47 @@
+{
+  "timestamp": "20250927_230658",
+  "successful_connections": [],
+  "all_results": {
+    "202.168.40.27": {
+      "status": "failed",
+      "error": "No valid credentials"
+    },
+    "202.168.40.28": {
+      "status": "failed",
+      "error": "No valid credentials"
+    },
+    "202.168.40.36": {
+      "status": "failed",
+      "error": "No valid credentials"
+    },
+    "202.168.40.24": {
+      "status": "failed",
+      "error": "No valid credentials"
+    },
+    "202.168.40.26": {
+      "status": "failed",
+      "error": "No valid credentials"
+    },
+    "202.168.40.29": {
+      "status": "failed",
+      "error": "No valid credentials"
+    },
+    "202.168.40.34": {
+      "status": "failed",
+      "error": "No valid credentials"
+    },
+    "202.168.40.35": {
+      "status": "failed",
+      "error": "No valid credentials"
+    },
+    "202.168.40.22": {
+      "status": "failed",
+      "error": "No valid credentials"
+    }
+  },
+  "summary": {
+    "total_cameras": 9,
+    "successful": 0,
+    "failed": 9
+  }
+}

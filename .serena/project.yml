@@ -1,0 +1,16 @@
+project_name: ASEOfSmartICE
+language: python
+description: Smart ICE ASE Project
+include_patterns:
+  - "*.py"
+  - "*.js"
+  - "*.ts"
+  - "*.jsx"
+  - "*.tsx"
+exclude_patterns:
+  - "**/node_modules/**"
+  - "**/__pycache__/**"
+  - "**/venv/**"
+  - "**/.venv/**"
+  - "**/dist/**"
+  - "**/build/**"

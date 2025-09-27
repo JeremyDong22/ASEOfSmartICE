@@ -1,0 +1,78 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Backup files
+backup_queue/
+*.bak
+
+# Temporary files
+/tmp/
+*.tmp
+*.temp
+
+# Model weights (large files)
+*.pt
+*.pth
+*.weights
+*.h5
+
+# Videos (large files)
+*.mp4
+*.avi
+*.mov
+
+# Test outputs
+test_outputs/
+test_results/
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# IMPORTANT: Image directories (contain thousands of files)
+train-model/raw_images/
+train-model/extracted-persons/
+train-model/labeled-persons/
+train-model/dataset/
+train-model/models/
+train-model/videos/
+
+# Linux scripts backup data
+train-model/linux_scripts/backup_queue/
+train-model/linux_scripts/logs/
+train-model/linux_scripts/*.db
+
+# Test images and screenshots
+test/**/*.jpg
+test/**/*.png
+test/**/*.jpeg
+test-model/**/*.jpg
+test-model/**/*.png
+
+# Sub-stream screenshots
+sub-stream/screenshots/
+sub-stream/**/*.jpg
+sub-stream/**/*.png
