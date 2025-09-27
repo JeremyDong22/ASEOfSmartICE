@@ -21,7 +21,7 @@ import shutil
 
 # Supabase Configuration (Private repo - credentials are safe)
 SUPABASE_URL = "https://wdpeoyugsxqnpwwtkqsl.supabase.co"
-SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndkcGVveXVnc3hxbnB3d3RrcXNsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTMwNDM3NjQsImV4cCI6MjA2ODYxOTc2NH0.jLJSzCcawdMOBXvz-W6vvqzxJdLJmRBqLWXeTKPJLN0"
+SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndkcGVveXVnc3hxbnB3d3RrcXNsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQxNDgwNzgsImV4cCI6MjA1OTcyNDA3OH0.9bUpuZCOZxDSH3KsIu6FwWZyAvnV5xPJGNpO3luxWOE"
 STORAGE_BUCKET = "ASE"
 
 # Configuration
@@ -236,7 +236,7 @@ class ResilientSupabaseAgent:
                 'restaurant_id': None
             }
 
-            url = f"{SUPABASE_URL}/rest/v1/ASE_Snapshot"
+            url = f"{SUPABASE_URL}/rest/v1/ase_snapshot"
             response = requests.post(url, headers=headers, json=data, timeout=10)
 
             if response.status_code in [200, 201]:
