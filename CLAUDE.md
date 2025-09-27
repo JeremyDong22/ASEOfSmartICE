@@ -138,3 +138,83 @@ pip3 install flask opencv-python numpy requests
 
 ### ONVIF Protocol Support
 Current testing indicates target cameras may not fully support standard ONVIF protocols, requiring fallback to direct RTSP connections for reliable streaming functionality.
+
+## Supabase Integration
+
+### Database Configuration
+- **Project URL**: `https://wdpeoyugsxqnpwwtkqsl.supabase.co`
+- **Anon Key**: `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndkcGVveXVnc3hxbnB3d3RrcXNsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQxNDgwNzgsImV4cCI6MjA1OTcyNDA3OH0.9bUpuZCOZxDSH3KsIu6FwWZyAvnV5xPJGNpO3luxWOE`
+- **Storage Bucket**: `ASE` (public bucket for camera screenshots)
+
+### Database Schema
+
+#### Table: `ase_snapshot` (lowercase!)
+Stores metadata for all surveillance camera screenshots:
+
+```sql
+CREATE TABLE public.ase_snapshot (
+    image_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    image_url TEXT NOT NULL,                    -- Supabase storage URL
+    camera_name TEXT NOT NULL,                  -- e.g., 'camera_27', 'camera_36'
+    restaurant_id TEXT,                          -- NULL for now, future multi-location support
+    capture_timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    resolution TEXT,                             -- e.g., '2592x1944', '1920x1080'
+    file_size_kb NUMERIC,                        -- File size in KB
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Indexes for performance
+CREATE INDEX idx_ase_snapshot_camera_name ON public.ase_snapshot(camera_name);
+CREATE INDEX idx_ase_snapshot_capture_timestamp ON public.ase_snapshot(capture_timestamp);
+CREATE INDEX idx_ase_snapshot_restaurant_id ON public.ase_snapshot(restaurant_id);
+
+-- Row Level Security enabled with public access policies
+```
+
+### Storage Structure
+```
+ASE/ (bucket)
+├── camera_27/           # High-res camera (2592x1944)
+│   └── YYYYMMDD_HHMMSS_2592_1944.jpg
+├── camera_28/           # High-res camera (2592x1944)
+├── camera_36/           # Medium-res camera (1920x1080)
+├── camera_35/           # Medium-res camera (1920x1080)
+├── camera_22/           # Medium-res camera (1920x1080)
+├── camera_24/           # Low-res camera (640x360)
+├── camera_26/           # Low-res camera (640x360)
+├── camera_29/           # Low-res camera (640x360)
+└── test/                # Test uploads
+```
+
+### Local Backup Database (SQLite)
+Location: `train-model/linux_scripts/capture_tracking.db`
+
+```sql
+CREATE TABLE upload_tracking (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    filename TEXT UNIQUE NOT NULL,
+    camera_name TEXT NOT NULL,
+    local_path TEXT NOT NULL,
+    capture_timestamp DATETIME NOT NULL,
+    upload_status TEXT DEFAULT 'pending',  -- pending/success/failed/missing
+    upload_attempts INTEGER DEFAULT 0,
+    last_attempt DATETIME,
+    supabase_url TEXT,
+    error_message TEXT,
+    file_size_kb REAL,
+    resolution TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### Upload Flow
+1. Camera capture → Save locally to `backup_queue/camera_XX/`
+2. Try Supabase upload → If success, delete local copy
+3. If fail → Keep local, mark as 'pending' in SQLite
+4. Background retry every 10 minutes or manual sync
+
+### Important Notes
+- **Table name is lowercase**: Use `ase_snapshot` not `ASE_Snapshot`
+- **Credentials are hardcoded**: Safe for private repository
+- **Resilient design**: Never loses data even if Supabase is down
+- **Auto-retry mechanism**: Failed uploads retry automatically
