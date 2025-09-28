@@ -42,6 +42,23 @@ python3 test/connection_methods_summary.py
 # Start web-based camera stream preview
 python3 sub-stream/web_stream_preview.py
 # Access at: http://localhost:5001
+
+# 🚀 PRODUCTION: Start complete surveillance system (NEW!)
+train-model/linux_scripts/camera_surveillance_master.sh start
+# Genius 1hr 59min design eliminates race conditions with smart cron management
+```
+
+### Production System Management
+```bash
+# Start/stop/restart complete surveillance system
+./camera_surveillance_master.sh {start|stop|status|restart}
+
+# Monitor system logs
+tail -f train-model/linux_scripts/logs/capture_$(date +%Y%m%d).log
+tail -f train-model/linux_scripts/logs/master_$(date +%Y%m%d).log
+
+# Check database status
+sqlite3 train-model/linux_scripts/capture_tracking.db "SELECT COUNT(*) FROM upload_tracking;"
 ```
 
 ### Development and Testing
@@ -218,3 +235,43 @@ CREATE TABLE upload_tracking (
 - **Credentials are hardcoded**: Safe for private repository
 - **Resilient design**: Never loses data even if Supabase is down
 - **Auto-retry mechanism**: Failed uploads retry automatically
+
+## 🧠 Genius 1hr 59min Design
+
+### The Race Condition Problem (Solved!)
+Previous system had a critical race condition:
+1. Python script runs for exactly 2 hours, then exits
+2. Cron runs every 2 hours to restart script
+3. **Race condition**: When script exits at same time cron checks if it's running
+4. Result: 2-hour gaps in surveillance (13:00-15:00, etc.)
+
+### The Genius Solution
+- **Python runtime**: Changed from 2.0 hours to **1.98 hours (1hr 59min)**
+- **Smart timing**: Script exits 1 minute BEFORE cron restart
+- **Master controller**: `camera_surveillance_master.sh` provides monitoring and auto-recovery
+- **Result**: Zero gaps, perfect continuity, self-healing system
+
+### Production Architecture (2-Script System)
+```
+camera_surveillance_master.sh (main controller)
+├── Auto-installs cron: 0 11,13,15,17,19,21 * * *
+├── Continuous monitoring and auto-recovery
+├── Calls camera_capture_wrapper.sh when needed
+└── Logs: master_YYYYMMDD.log
+
+camera_capture_wrapper.sh (process manager)
+├── Cron-triggered every 2 hours (11AM-10PM)
+├── Manages Python process lifecycle (PID files, logging)
+├── Time-based control and graceful shutdown
+└── Logs: capture_YYYYMMDD.log
+
+linux_capture_screenshots_to_supabase_resilient.py (worker)
+├── Runs for 1.98 hours then gracefully exits
+├── Captures every 5 minutes from 8 cameras
+└── Uploads to Supabase with local backup resilience
+```
+
+### Script Dependencies
+- **setup_cron.sh**: ❌ **Removed** - Master script handles cron installation automatically
+- **camera_surveillance_master.sh**: ✅ **Required** - Main system controller
+- **camera_capture_wrapper.sh**: ✅ **Required** - Called by master for process management
