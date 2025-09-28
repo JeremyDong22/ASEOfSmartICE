@@ -262,32 +262,78 @@ class ResilientSupabaseAgent:
             print(f"❌ Local save failed: {e}")
             return False, None, None
 
-    def test_camera_connection(self, camera_config):
-        """Test if camera is accessible before starting capture"""
+    def test_camera_connection_ffmpeg(self, camera_config):
+        """Test camera connection using FFmpeg fallback"""
+        import subprocess
         rtsp_url = camera_config['rtsp_url']
 
         try:
-            cap = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
-            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            # Use ffprobe to test connection
+            cmd = [
+                'ffprobe', '-v', 'quiet', '-show_streams', '-select_streams', 'v:0',
+                '-timeout', str(CONNECTION_TIMEOUT * 1000000), # microseconds
+                rtsp_url
+            ]
 
-            start_time = time.time()
-            while not cap.isOpened() and (time.time() - start_time) < CONNECTION_TIMEOUT:
-                time.sleep(0.1)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=CONNECTION_TIMEOUT + 2)
 
-            if not cap.isOpened():
-                cap.release()
-                return False, "Connection timeout"
-
-            ret, frame = cap.read()
-            cap.release()
-
-            if ret and frame is not None:
-                return True, "Connected successfully"
+            if result.returncode == 0 and 'codec_name=' in result.stdout:
+                return True, "FFmpeg connection successful"
             else:
-                return False, "No frame received"
+                return False, f"FFmpeg failed: {result.stderr[:100]}"
 
+        except subprocess.TimeoutExpired:
+            return False, "FFmpeg timeout"
         except Exception as e:
-            return False, f"Exception: {str(e)}"
+            return False, f"FFmpeg exception: {str(e)}"
+
+    def test_camera_connection(self, camera_config):
+        """Test if camera is accessible before starting capture with OpenCV + FFmpeg fallback"""
+        rtsp_url = camera_config['rtsp_url']
+        camera_ip = camera_config['ip']
+
+        # Try OpenCV first (3 attempts)
+        for attempt in range(RETRY_ATTEMPTS):
+            try:
+                print(f"🔍 Testing {camera_ip} with OpenCV (attempt {attempt + 1}/{RETRY_ATTEMPTS})...")
+                cap = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
+                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
+                start_time = time.time()
+                while not cap.isOpened() and (time.time() - start_time) < CONNECTION_TIMEOUT:
+                    time.sleep(0.1)
+
+                if not cap.isOpened():
+                    cap.release()
+                    print(f"  ❌ OpenCV timeout (attempt {attempt + 1})")
+                    continue
+
+                ret, frame = cap.read()
+                cap.release()
+
+                if ret and frame is not None:
+                    print(f"  ✅ OpenCV success: {camera_ip}")
+                    return True, "OpenCV connected successfully"
+                else:
+                    print(f"  ⚠️ OpenCV no frame (attempt {attempt + 1})")
+
+            except Exception as e:
+                print(f"  ❌ OpenCV exception (attempt {attempt + 1}): {str(e)}")
+
+        # OpenCV failed, try FFmpeg fallback (3 attempts)
+        print(f"🔄 OpenCV failed, trying FFmpeg fallback for {camera_ip}...")
+        for attempt in range(RETRY_ATTEMPTS):
+            print(f"🔍 Testing {camera_ip} with FFmpeg (attempt {attempt + 1}/{RETRY_ATTEMPTS})...")
+            success, message = self.test_camera_connection_ffmpeg(camera_config)
+            if success:
+                print(f"  ✅ FFmpeg success: {camera_ip}")
+                return True, f"FFmpeg fallback: {message}"
+            else:
+                print(f"  ❌ FFmpeg failed (attempt {attempt + 1}): {message}")
+
+        # Both methods failed
+        print(f"  ❌ Both OpenCV and FFmpeg failed for {camera_ip}")
+        return False, "Both OpenCV and FFmpeg failed"
 
     def capture_and_process_screenshot(self, camera_config):
         """Capture screenshot with local backup and Supabase upload"""

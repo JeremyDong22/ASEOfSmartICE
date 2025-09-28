@@ -22,11 +22,13 @@ Camera Network (8 cameras) → Python Capture Script → Local Backup + Supabase
 - **Purpose**: Resilient camera capture with automatic failover
 - **Features**:
   - Captures from 8 cameras every 5 minutes
+  - **OpenCV + FFmpeg fallback** for H.265/HEVC compatibility
+  - **Enhanced connection testing** (5s timeout, 3 retries per method)
   - Local backup queue for network failures
   - SQLite tracking database
   - Auto-retry mechanism (10-minute intervals)
   - Graceful shutdown at 10 PM
-- **Data Flow**: Camera → Local Save → Try Upload → Success/Retry
+- **Data Flow**: Camera → OpenCV Test → FFmpeg Fallback → Local Save → Upload
 
 ### 2. **camera_capture_wrapper.sh**
 - **Purpose**: Process management and scheduling enforcement
@@ -92,10 +94,14 @@ upload_tracking:
 - image_url (Text)
 - camera_name (Text)
 - restaurant_id (Text, nullable)
-- capture_timestamp (Timestamp)
+- capture_timestamp (Timestamp WITH TIME ZONE, stored in UTC)
 - resolution (Text)
 - file_size_kb (Numeric)
 ```
+
+**⚠️ TIMEZONE NOTE**: Supabase stores `capture_timestamp` in **UTC timezone**, while local SQLite uses Beijing time (UTC+8). When querying Supabase:
+- UTC 05:00-07:00 = Beijing 13:00-15:00
+- Use `AT TIME ZONE 'Asia/Shanghai'` for Beijing time conversion
 
 ## Failure Recovery Mechanism
 
@@ -151,10 +157,15 @@ Hardcoded in scripts for simplicity (safe for private repo):
 ## Daily Statistics
 
 - **Capture Frequency**: Every 5 minutes
-- **Daily Images**: ~1,056 (132 per camera)
-- **Storage Usage**: 10-15 GB/day
+- **Camera Success Rate**: 6/8 cameras (75% with FFmpeg fallback)
+- **Daily Images**: ~864 (108 per active camera)
+- **Storage Usage**: 8-12 GB/day
 - **Upload Success Rate**: Typically >95%
 - **Backup Queue Size**: <100 MB (temporary)
+
+### Camera Compatibility Status
+- **✅ Working**: camera_22, 24, 26, 29, 35, 36 (6/8)
+- **❌ H.265 Issues**: camera_27, 28 (OpenCV + FFmpeg both struggle)
 
 ## Troubleshooting Guide
 
@@ -164,7 +175,9 @@ Hardcoded in scripts for simplicity (safe for private repo):
    ```bash
    ping 202.168.40.XX
    telnet 202.168.40.XX 554
+   ffprobe -v quiet -show_streams rtsp://admin:password@IP:554/Streaming/Channels/102
    ```
+   **Note**: H.265/HEVC cameras may fail OpenCV tests but work with FFmpeg fallback
 
 2. **Supabase Upload Failures**
    - Check: `python3 sync_backup_queue.py --stats`
