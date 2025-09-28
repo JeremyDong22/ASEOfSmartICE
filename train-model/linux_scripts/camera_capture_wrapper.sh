@@ -49,6 +49,9 @@ is_running() {
 
 # Function to check current time
 should_run() {
+    # Temporarily bypass time check for testing
+    return 0  # Always should run for testing
+
     CURRENT_HOUR=$(date +%H | sed 's/^0//')  # Remove leading zero
 
     if [ "$CURRENT_HOUR" -ge "$START_HOUR" ] && [ "$CURRENT_HOUR" -lt "$STOP_HOUR" ]; then

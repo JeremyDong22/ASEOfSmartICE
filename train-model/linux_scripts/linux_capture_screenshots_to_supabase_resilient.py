@@ -29,7 +29,7 @@ CAPTURE_INTERVAL = 300  # 5 minutes in seconds
 CONNECTION_TIMEOUT = 5  # seconds
 RETRY_ATTEMPTS = 3
 CAMERA_CONFIG_FILE = "../../test/camera_connection_results_20250927_230846.json"
-MAX_RUNTIME_HOURS = 2  # Maximum runtime per execution (for cron restarts)
+MAX_RUNTIME_HOURS = 1.98  # 1hr 59min - Genius design to avoid race condition with cron
 STOP_TIME = 22  # Stop at 10 PM (22:00)
 
 # Local backup configuration
