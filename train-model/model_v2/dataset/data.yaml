@@ -1,0 +1,16 @@
+# Restaurant Staff Detection Dataset
+path: /Users/jeremydong/Desktop/Smartice/ASEOfSmartICE/train-model/dataset
+train: images/train
+val: images/val
+
+# Classes
+nc: 2
+names: ['waiter', 'customer']
+
+# Dataset info
+train_samples: 520
+val_samples: 131
+train_waiters: 95
+train_customers: 425
+val_waiters: 20
+val_customers: 111

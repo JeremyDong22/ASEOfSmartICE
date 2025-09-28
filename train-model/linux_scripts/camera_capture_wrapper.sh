@@ -1,7 +1,7 @@
 #!/bin/bash
-# Version: 1.1
+# Version: 1.2
 # Camera capture automation wrapper for Linux cron execution
-# Manages Python script execution from 11am to 10pm with 2-hour segments
+# Manages Python script execution from 11am to 10pm with hourly checks
 # Now supports resilient version with local backup queue
 
 # Configuration
@@ -154,8 +154,8 @@ main() {
     if is_running; then
         log_message "Camera capture is already running. Checking health..."
 
-        # The Python script will auto-exit after 2 hours
-        # This allows cron to restart it for continuous operation
+        # The Python script will auto-exit after 2 hours or at 10 PM
+        # Cron checks every hour to ensure continuous operation
         log_message "Process is healthy. Exiting wrapper."
     else
         log_message "No running process found. Starting new capture session..."

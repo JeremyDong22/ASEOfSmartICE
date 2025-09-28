@@ -1,7 +1,7 @@
 #!/bin/bash
-# Created: 2025-09-28 - Camera surveillance master controller with genius 1hr 59min design
+# Created: 2025-09-28 - Camera surveillance master controller with hourly health checks
 # All-in-one script that manages cron, wrapper, and continuous monitoring
-# Eliminates race conditions with smart timing and self-healing capabilities
+# Hourly cron checks with time-based control and self-healing capabilities
 
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -70,11 +70,11 @@ kill_existing_processes() {
 
 # Function to install cron job
 install_cron() {
-    log_master "Installing smart cron job (every 2 hours: 11,13,15,17,19,21)..."
+    log_master "Installing smart cron job (every hour: 11-21)..."
 
-    # Add our cron job
+    # Add our cron job - runs every hour from 11 AM to 9 PM
     (crontab -l 2>/dev/null | grep -v "camera_capture_wrapper.sh"; \
-     echo "0 11,13,15,17,19,21 * * * $WRAPPER_SCRIPT") | crontab -
+     echo "0 11-21 * * * $WRAPPER_SCRIPT") | crontab -
 
     log_master "Cron job installed successfully"
 }
@@ -123,7 +123,7 @@ start_master() {
 
     log_master "==========================================="
     log_master "Camera Surveillance Master Controller"
-    log_master "Genius 1hr 59min design eliminates race conditions"
+    log_master "Hourly health checks with time-based control"
     log_master "Starting comprehensive surveillance system..."
     log_master "==========================================="
 
