@@ -92,11 +92,13 @@ CREATE TABLE ase_snapshot (
     image_id        UUID PRIMARY KEY,
     image_url       TEXT,           -- Supabase storage URL
     camera_name     TEXT,           -- e.g., 'camera_27'
-    capture_timestamp TIMESTAMP,
+    capture_timestamp TIMESTAMP,    -- Stored in UTC (UTC+0). Beijing time = UTC+8
     resolution      TEXT,           -- e.g., '2592x1944'
     file_size_kb    NUMERIC
 );
 ```
+
+**Note**: All timestamps in Supabase are stored in UTC (UTC+0). To convert to Beijing time, add 8 hours.
 
 ### Storage Structure
 ```
