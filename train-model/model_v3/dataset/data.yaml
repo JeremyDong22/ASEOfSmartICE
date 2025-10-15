@@ -1,0 +1,17 @@
+# Restaurant Staff Detection Dataset - Model V3
+# Focus: High-quality 1080p cameras only (camera_35 and camera_22)
+path: /Users/jeremydong/Desktop/Smartice/ASEOfSmartICE/train-model/model_v3/dataset
+train: images/train
+val: images/val
+
+# Classes
+nc: 2
+names: ['waiter', 'customer']
+
+# Dataset info (will be updated after preparation)
+train_samples: 0
+val_samples: 0
+train_waiters: 0
+train_customers: 0
+val_waiters: 0
+val_customers: 0
