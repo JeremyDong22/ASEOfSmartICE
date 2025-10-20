@@ -60,10 +60,13 @@ train-model/dataset/
 train-model/models/
 train-model/videos/
 
-# Linux scripts backup data
-train-model/linux_scripts/backup_queue/
-train-model/linux_scripts/logs/
-train-model/linux_scripts/*.db
+# Test model video outputs
+test-model/linux_rtx_video_streaming/videos/
+
+# Linux RTX screenshot capture backup data
+train-model/linux_rtx_screenshot_capture/backup_queue/
+train-model/linux_rtx_screenshot_capture/logs/
+train-model/linux_rtx_screenshot_capture/*.db
 
 # Test images and screenshots
 test/**/*.jpg

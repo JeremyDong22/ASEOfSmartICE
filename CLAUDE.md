@@ -33,7 +33,7 @@ Primary model training pipeline. Frequently used for developing custom YOLO-base
 - `models/` - Trained model outputs
 - `raw_images/` - Local image storage
 - `scripts/` - Model training execution scripts
-- `linux_scripts/` - **Critical**: Automated data collection scripts for Linux 3060 machines in restaurants
+- `linux_rtx_screenshot_capture/` - **Critical**: Automated screenshot capture scripts for Linux RTX 3060 machines in restaurants
 
 ## System Architecture
 
@@ -43,7 +43,7 @@ Primary model training pipeline. Frequently used for developing custom YOLO-base
 - **Data Flow**: Linux scripts capture footage → Upload to cloud → Download to MacBook for training
 
 ### Linux Scripts Purpose
-The `train-model/linux_scripts/` folder contains automation for the restaurant Linux machines:
+The `train-model/linux_rtx_screenshot_capture/` folder contains automation for the restaurant Linux machines:
 - Shell scripts and Python scripts for automated data capture
 - Runs continuously on restaurant hardware
 - Captures frames/images from multiple cameras
@@ -59,7 +59,7 @@ The `train-model/linux_scripts/` folder contains automation for the restaurant L
 
 ```bash
 # Start surveillance system (on Linux machines)
-train-model/linux_scripts/camera_surveillance_master.sh start
+train-model/linux_rtx_screenshot_capture/camera_surveillance_master.sh start
 
 # Test camera connections
 python3 sub-stream/web_stream_preview.py

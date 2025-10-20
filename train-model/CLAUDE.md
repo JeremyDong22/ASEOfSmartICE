@@ -14,7 +14,7 @@ Each model version has its own folder with a dedicated CLAUDE.md explaining its 
 - **`model_v4/`** - Future: Behavioral analysis (planned)
 
 ### Data Collection
-- **`linux_scripts/`** - Automated capture system for RTX 3060 machines in restaurants
+- **`linux_rtx_screenshot_capture/`** - Automated screenshot capture system for RTX 3060 machines in restaurants
 
 ## Quick Navigation
 
@@ -24,12 +24,12 @@ Each model version has its own folder with a dedicated CLAUDE.md explaining its 
 | `model_v2/` | Next Version Template | 🔄 Ready |
 | `model_v3/` | Activity Recognition | 📋 Planned |
 | `model_v4/` | Behavioral Analysis | 📋 Planned |
-| `linux_scripts/` | Data Collection | ✅ Active |
+| `linux_rtx_screenshot_capture/` | Screenshot Capture | ✅ Active |
 
 ## How to Use
 
 1. **For Training**: Go to the appropriate model version folder and follow its CLAUDE.md
-2. **For Data Collection**: Check `linux_scripts/CLAUDE.md` for capture system setup
+2. **For Data Collection**: Check `linux_rtx_screenshot_capture/CLAUDE.md` for capture system setup
 3. **For New Models**: Copy `model_v2/` as a clean starting template
 
 ## Model Evolution
