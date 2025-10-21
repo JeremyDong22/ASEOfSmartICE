@@ -13,7 +13,7 @@ import shutil
 app = Flask(__name__)
 
 # Paths
-INPUT_DIR = "../extracted-persons/training_video_20250927_202033"
+INPUT_DIR = "../extracted-persons"
 OUTPUT_DIR = "../labeled-persons"
 
 # Global state
@@ -35,10 +35,26 @@ def setup():
         with open(labels_file, 'r') as f:
             labels.update(json.load(f))
 
-    # Get all images
-    images = sorted([f for f in os.listdir(INPUT_DIR) if f.endswith(('.jpg', '.png'))])
-    print(f"📷 Found {len(images)} images to label")
+    # Get all images from all subdirectories (camera_XX folders)
+    images = []
+    if os.path.exists(INPUT_DIR):
+        for root, dirs, files in os.walk(INPUT_DIR):
+            for f in files:
+                if f.endswith(('.jpg', '.png')):
+                    # Store relative path from INPUT_DIR
+                    rel_path = os.path.relpath(os.path.join(root, f), INPUT_DIR)
+                    images.append(rel_path)
+
+    images = sorted(images)
+    total_images = len(images)
+
+    # Filter out already labeled images to skip them
+    unlabeled_images = [img for img in images if img not in labels]
+    images = unlabeled_images
+
+    print(f"📷 Total images: {total_images}")
     print(f"✅ Already labeled: {len(labels)} images")
+    print(f"📝 Remaining to label: {len(images)} images")
 
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
@@ -375,6 +391,8 @@ def label():
         # Copy file to correct labeled directory
         dst_dir = f"{OUTPUT_DIR}/{label}s"
         dst = os.path.join(dst_dir, filename)
+        # Ensure subdirectory exists (for camera_XX folders)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
         shutil.copy2(src, dst)
 
         # Save labels
@@ -401,13 +419,22 @@ def previous():
     return jsonify({'success': True})
 
 if __name__ == "__main__":
-    setup()
-    print("\n🚀 Starting labeling tool...")
-    print("🌐 Open your browser at: http://localhost:5002")
-    print("\n⌨️  Keyboard shortcuts:")
-    print("   Space = Toggle between Waiter/Customer")
-    print("   Enter = Save current label & next")
-    print("   ← = Previous image")
-    print("\n📌 Default label: Customer (press Space to switch to Waiter)\n")
+    try:
+        setup()
+        print("\n🚀 Starting labeling tool...")
+        print("🌐 Open your browser at: http://localhost:5002")
+        print("\n⌨️  Keyboard shortcuts:")
+        print("   Space = Toggle between Waiter/Customer")
+        print("   Enter = Save current label & next")
+        print("   ← = Previous image")
+        print("\n📌 Default label: Customer (press Space to switch to Waiter)\n")
 
-    app.run(host='0.0.0.0', port=5002, debug=False)
+        os.system('say "Labeling tool started on localhost port 5002"')
+        app.run(host='0.0.0.0', port=5002, debug=False)
+    except KeyboardInterrupt:
+        print("\n✅ Labeling session ended by user")
+        os.system('say "Labeling tool stopped"')
+    except Exception as e:
+        print(f"\n❌ Error: {e}")
+        os.system('say "Labeling tool failed with error"')
+        raise

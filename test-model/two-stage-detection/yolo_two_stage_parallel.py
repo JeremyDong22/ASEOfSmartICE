@@ -327,8 +327,8 @@ def main():
     parser = argparse.ArgumentParser(
         description="Two-stage staff detection with parallel/batch processing"
     )
-    parser.add_argument("--image", default="test_screenshot.jpg",
-                       help="Path to input image")
+    parser.add_argument("--image", required=True,
+                       help="Path to input image (e.g., ../test_images/test_image_one.jpg)")
     parser.add_argument("--output", default="results",
                        help="Output directory")
     parser.add_argument("--person_conf", type=float, default=PERSON_CONF_THRESHOLD,

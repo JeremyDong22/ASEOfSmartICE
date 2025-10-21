@@ -12,23 +12,23 @@ import time
 
 # Paths
 DATASET_YAML = "../dataset/data.yaml"
-OUTPUT_DIR = "../models"
+OUTPUT_DIR = "../models_sgd"  # New folder for SGD training
 BASE_MODEL = "yolov8n.pt"  # Use nano model for faster training on CPU
 
-# Training configuration for MacBook
+# Training configuration for MacBook M4 - SGD Optimized
 TRAIN_CONFIG = {
-    'epochs': 50,           # Reduced epochs for CPU
+    'epochs': 50,           # Training rounds with early stopping
     'imgsz': 640,          # Standard image size
-    'batch': 8,            # Small batch for CPU/memory
+    'batch': 6,            # Reduced for better stability with SGD
     'patience': 10,        # Early stopping patience
     'save': True,
-    'device': 'mps' if torch.backends.mps.is_available() else 'cpu',  # Use MPS on M1/M2 Mac
-    'workers': 1,          # Single worker to prevent image corruption issues
+    'device': 'cpu',       # Use CPU - MPS has memory leak issues
+    'workers': 2,          # Dual workers for M4 performance
     'project': OUTPUT_DIR,
-    'name': 'waiter_customer_model',
+    'name': 'waiter_customer_model_sgd_cpu',
     'exist_ok': True,
     'pretrained': True,
-    'optimizer': 'Adam',
+    'optimizer': 'SGD',    # Changed from Adam to SGD
     'lr0': 0.01,          # Initial learning rate
     'lrf': 0.01,          # Final learning rate
     'momentum': 0.937,
@@ -114,11 +114,12 @@ def train_model():
     except KeyboardInterrupt:
         print("\n⚠️ Training interrupted by user")
         print("   Latest checkpoint saved")
+        os.system('say "Training interrupted by user. Checkpoint saved"')
     
     # Save best model
-    best_model_path = os.path.join(OUTPUT_DIR, 'waiter_customer_model', 'weights', 'best.pt')
+    best_model_path = os.path.join(OUTPUT_DIR, 'waiter_customer_model_sgd_cpu', 'weights', 'best.pt')
     if os.path.exists(best_model_path):
-        final_path = os.path.join(OUTPUT_DIR, 'waiter_customer_final.pt')
+        final_path = os.path.join(OUTPUT_DIR, 'waiter_customer_final_sgd_cpu.pt')
         
         # Load and save final model
         final_model = YOLO(best_model_path)
@@ -142,7 +143,7 @@ def train_model():
 
 def validate_model():
     """Validate the trained model"""
-    model_path = os.path.join(OUTPUT_DIR, 'waiter_customer_final.pt')
+    model_path = os.path.join(OUTPUT_DIR, 'waiter_customer_final_sgd_cpu.pt')
     
     if not os.path.exists(model_path):
         print("❌ Trained model not found")
@@ -168,18 +169,23 @@ if __name__ == "__main__":
     print("🎯 Restaurant Staff Detection Model Training")
     print("=" * 60)
     
-    # Check MPS availability
-    if torch.backends.mps.is_available():
-        print("✅ Apple Silicon GPU (MPS) detected - Training will be faster!")
-    else:
-        print("⚠️ Running on CPU - Training will be slower")
-        print("   Tip: For faster training, use Google Colab with GPU")
+    # CPU mode for stability
+    print("💻 Running on CPU mode (MPS disabled due to memory leak issues)")
+    print("   This provides stable training without memory accumulation")
     
     print("-" * 60)
     
     # Train model
-    train_model()
-    
-    # Validate if successful
-    if os.path.exists(os.path.join(OUTPUT_DIR, 'waiter_customer_final.pt')):
-        validate_model()
+    try:
+        train_model()
+
+        # Validate if successful
+        if os.path.exists(os.path.join(OUTPUT_DIR, 'waiter_customer_final_sgd_cpu.pt')):
+            validate_model()
+            os.system('say "CPU S G D model training completed successfully"')
+        else:
+            os.system('say "CPU S G D model training finished but final model not found"')
+    except Exception as e:
+        print(f"\n❌ Training failed: {e}")
+        os.system('say "Model training failed with error"')
+        raise

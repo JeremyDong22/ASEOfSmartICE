@@ -54,14 +54,14 @@ def prepare_dataset():
         print("\n📝 Please run 3_label_images.py first to label your images")
         return
 
-    # Collect waiter images
-    waiter_images = list(waiter_dir.glob("*.jpg")) + list(waiter_dir.glob("*.png"))
+    # Collect waiter images (recursively search subdirectories)
+    waiter_images = list(waiter_dir.glob("**/*.jpg")) + list(waiter_dir.glob("**/*.png"))
     for img_path in waiter_images:
         all_data.append((img_path, CLASS_NAMES['waiter'], 'waiter'))
     print(f"✅ Found {len(waiter_images)} waiter images")
 
-    # Collect customer images
-    customer_images = list(customer_dir.glob("*.jpg")) + list(customer_dir.glob("*.png"))
+    # Collect customer images (recursively search subdirectories)
+    customer_images = list(customer_dir.glob("**/*.jpg")) + list(customer_dir.glob("**/*.png"))
     for img_path in customer_images:
         all_data.append((img_path, CLASS_NAMES['customer'], 'customer'))
     print(f"✅ Found {len(customer_images)} customer images")
@@ -147,4 +147,10 @@ val_customers: {val_c}
     print("\n🎯 Ready for training! Run: 5_train_model.py")
 
 if __name__ == "__main__":
-    prepare_dataset()
+    try:
+        prepare_dataset()
+        os.system('say "Dataset preparation completed successfully"')
+    except Exception as e:
+        print(f"\n❌ Error: {e}")
+        os.system('say "Dataset preparation failed with error"')
+        raise

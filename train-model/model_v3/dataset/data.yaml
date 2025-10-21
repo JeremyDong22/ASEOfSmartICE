@@ -1,17 +1,18 @@
-# Restaurant Staff Detection Dataset - Model V3
-# Focus: High-quality 1080p cameras only (camera_35 and camera_22)
+# Restaurant Staff Classification Dataset (YOLO Classification Format)
+# This is a classification task - folder structure defines classes, no label files needed
 path: /Users/jeremydong/Desktop/Smartice/ASEOfSmartICE/train-model/model_v3/dataset
-train: images/train
-val: images/val
+train: train
+val: val
 
-# Classes
-nc: 2
-names: ['waiter', 'customer']
+# Classes (MUST match alphabetical folder order: customer, waiter)
+names:
+  0: customer
+  1: waiter
 
-# Dataset info (will be updated after preparation)
-train_samples: 0
-val_samples: 0
-train_waiters: 0
-train_customers: 0
-val_waiters: 0
-val_customers: 0
+# Dataset statistics
+train_samples: 1203
+val_samples: 302
+train_waiters: 321
+train_customers: 882
+val_waiters: 81
+val_customers: 221

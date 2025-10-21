@@ -318,8 +318,8 @@ def analyze_image(image_path, output_dir="results"):
 def main():
     """Main function with argument parsing"""
     parser = argparse.ArgumentParser(description="Two-stage staff detection")
-    parser.add_argument("--image", default="/var/folders/my/6rhf0w256qjf5fh3c8qr5qtm0000gn/T/TemporaryItems/NSIRD_screencaptureui_kWg15q/Screenshot 2025-09-27 at 23.47.03.png",
-                       help="Path to input image")
+    parser.add_argument("--image", required=True,
+                       help="Path to input image (e.g., ../test_images/test_image_one.jpg)")
     parser.add_argument("--output", default="results", help="Output directory")
     parser.add_argument("--person_conf", type=float, default=PERSON_CONF_THRESHOLD,
                        help="Person detection confidence threshold")

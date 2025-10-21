@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
 """
-ASEOfSmartICE Two-Stage Detection Script
-Version: 1.0.0 - Correct two-stage architecture for staff detection
+ASEOfSmartICE Two-Stage Detection Script - Advanced Model
+Version: 2.1.0 - Advanced model trained on 3000+ images from 6 camera angles
 
-This script implements the correct two-stage detection approach:
-1. Stage 1: Use standard YOLO to detect all persons
-2. Stage 2: Use our trained model to classify each person as waiter/customer
+Model Information:
+- Training data: ~3000 images from 6 different camera angles
+- Performance: mAP50-95: 99.0%, Precision: 94.1%, Recall: 98.1%
+- Waiter class: 90.8% precision, 98.3% recall, 98.7% AP50
+- Customer class: 97.3% precision, 97.9% recall, 99.4% AP50
+
+This script implements the two-stage detection approach:
+1. Stage 1: Use YOLOv8s to detect all persons (better than nano)
+2. Stage 2: Use our advanced trained model to classify each person as waiter/customer
 """
 
 import cv2
@@ -14,15 +20,17 @@ from ultralytics import YOLO
 import os
 from pathlib import Path
 import argparse
+import time
+import glob
 
 # Model paths and configuration
-PERSON_DETECTOR_MODEL = "yolov8n.pt"  # Standard COCO-trained YOLO
-STAFF_CLASSIFIER_MODEL = "../train-model/models/waiter_customer_model/weights/best.pt"
+PERSON_DETECTOR_MODEL = "models/yolov8s.pt"  # COCO-trained YOLO (small model, better than nano)
+STAFF_CLASSIFIER_MODEL = "models/waiter_customer_advanced.pt"  # Advanced model (3000+ images, 6 camera angles)
 
 # Detection parameters
 PERSON_CONF_THRESHOLD = 0.3    # Lower threshold to catch all people
 STAFF_CONF_THRESHOLD = 0.5     # Higher threshold for reliable classification
-MIN_PERSON_SIZE = 50           # Minimum person width/height in pixels
+MIN_PERSON_SIZE = 40           # Minimum person width/height in pixels (lowered to catch occluded people)
 
 # Visual configuration
 COLORS = {
@@ -39,12 +47,13 @@ def load_models():
     print(f"   Loading person detector: {PERSON_DETECTOR_MODEL}")
     person_detector = YOLO(PERSON_DETECTOR_MODEL)
 
-    # Load staff classifier (our trained model)
+    # Load staff classifier (advanced trained model)
     if not os.path.exists(STAFF_CLASSIFIER_MODEL):
         print(f"❌ Staff classifier not found: {STAFF_CLASSIFIER_MODEL}")
         return None, None
 
-    print(f"   Loading staff classifier: {STAFF_CLASSIFIER_MODEL}")
+    print(f"   Loading advanced staff classifier: {STAFF_CLASSIFIER_MODEL}")
+    print(f"   Model specs: 99% mAP, trained on 3000+ images from 6 camera angles")
     staff_classifier = YOLO(STAFF_CLASSIFIER_MODEL)
 
     print("✅ Both models loaded successfully!")
@@ -64,7 +73,7 @@ def detect_persons(person_detector, image):
     print("🔍 Stage 1: Detecting persons...")
 
     # Run person detection (class 0 = person in COCO dataset)
-    results = person_detector(image, conf=PERSON_CONF_THRESHOLD, classes=[0])
+    results = person_detector(image, conf=PERSON_CONF_THRESHOLD, classes=[0], verbose=False)
 
     person_detections = []
     for result in results:
@@ -91,29 +100,35 @@ def classify_persons(staff_classifier, image, person_detections):
     Stage 2: Classify each detected person as waiter or customer
 
     Args:
-        staff_classifier: Our trained classification model
+        staff_classifier: Advanced trained classification model
         image: Original image
         person_detections: List of person bounding boxes from stage 1
 
     Returns:
         list: Classification results for each person
     """
-    print("🎯 Stage 2: Classifying staff roles...")
+    print("🎯 Stage 2: Classifying staff roles with advanced model...")
+    stage2_start = time.time()
 
     classified_detections = []
 
     for i, detection in enumerate(person_detections):
         x1, y1, x2, y2 = detection['bbox']
-
-        # Extract person crop
         person_crop = image[y1:y2, x1:x2]
 
         # Skip if crop is too small
         if person_crop.shape[0] < 20 or person_crop.shape[1] < 20:
+            classified_detections.append({
+                'class': 'unknown',
+                'confidence': 0.0,
+                'bbox': detection['bbox'],
+                'person_confidence': detection['confidence']
+            })
             continue
 
-        # Run classification on the person crop
-        classification_results = staff_classifier(person_crop, conf=STAFF_CONF_THRESHOLD)
+        person_start = time.time()
+        classification_results = staff_classifier(person_crop, conf=STAFF_CONF_THRESHOLD, verbose=False)
+        person_time = (time.time() - person_start) * 1000  # ms
 
         # Process classification results
         best_classification = None
@@ -131,22 +146,30 @@ def classify_persons(staff_classifier, image, person_detections):
                             'class': CLASS_NAMES[class_id],
                             'confidence': conf,
                             'bbox': detection['bbox'],
-                            'person_confidence': detection['confidence']
+                            'person_confidence': detection['confidence'],
+                            'inference_ms': person_time
                         }
 
-        # If we got a classification, add it to results
+        # Add result
         if best_classification:
             classified_detections.append(best_classification)
-            print(f"   Person {i+1}: {best_classification['class']} ({best_classification['confidence']:.1%})")
+            print(f"   Person {i+1}: {best_classification['class']} ({best_classification['confidence']:.1%}) - {person_time:.1f}ms")
         else:
-            # If no classification, mark as unknown
             classified_detections.append({
                 'class': 'unknown',
                 'confidence': 0.0,
                 'bbox': detection['bbox'],
-                'person_confidence': detection['confidence']
+                'person_confidence': detection['confidence'],
+                'inference_ms': person_time
             })
-            print(f"   Person {i+1}: unknown (no confident classification)")
+            print(f"   Person {i+1}: unknown (no confident classification) - {person_time:.1f}ms")
+
+    stage2_time = (time.time() - stage2_start) * 1000
+    print(f"   Stage 2 total time: {stage2_time:.1f}ms")
+
+    # Store the stage2 time for summary
+    if classified_detections:
+        classified_detections[0]['_stage2_time'] = stage2_time
 
     return classified_detections
 
@@ -188,7 +211,7 @@ def draw_detections(image, detections):
 
     return annotated_image
 
-def print_detection_summary(detections):
+def print_detection_summary(detections, stage1_time=None, stage2_time=None):
     """Print summary of detection results"""
     if not detections:
         print("❌ No detections found")
@@ -204,39 +227,25 @@ def print_detection_summary(detections):
     print(f"   ❓ Unknown: {unknown_count}")
     print(f"   📋 Total: {len(detections)}")
 
-def analyze_image_with_params(image_path, output_dir="results", person_conf=None, staff_conf=None):
-    """Analyze image with custom confidence thresholds"""
-    global PERSON_CONF_THRESHOLD, STAFF_CONF_THRESHOLD
-
-    # Store original values
-    orig_person_conf = PERSON_CONF_THRESHOLD
-    orig_staff_conf = STAFF_CONF_THRESHOLD
-
-    # Update if provided
-    if person_conf is not None:
-        PERSON_CONF_THRESHOLD = person_conf
-    if staff_conf is not None:
-        STAFF_CONF_THRESHOLD = staff_conf
-
-    try:
-        result = analyze_image(image_path, output_dir)
-    finally:
-        # Restore original values
-        PERSON_CONF_THRESHOLD = orig_person_conf
-        STAFF_CONF_THRESHOLD = orig_staff_conf
-
-    return result
+    if stage2_time:
+        print(f"\n⏱️  Performance:")
+        print(f"   Stage 2 (role classification): {stage2_time:.1f}ms")
 
 def analyze_image(image_path, output_dir="results"):
     """Main function to analyze an image with two-stage detection"""
-    print(f"\n🎯 Two-Stage Staff Detection Analysis")
-    print("=" * 50)
+    print(f"\n{'='*60}")
+    print(f"🎯 Two-Stage Advanced Staff Detection")
+    print(f"{'='*60}")
     print(f"📸 Image: {os.path.basename(image_path)}")
 
-    # Load models
-    person_detector, staff_classifier = load_models()
-    if person_detector is None or staff_classifier is None:
-        return False
+    # Load models (only once for all images)
+    if not hasattr(analyze_image, 'person_detector'):
+        analyze_image.person_detector, analyze_image.staff_classifier = load_models()
+        if analyze_image.person_detector is None or analyze_image.staff_classifier is None:
+            return False
+
+    person_detector = analyze_image.person_detector
+    staff_classifier = analyze_image.staff_classifier
 
     # Load image
     if not os.path.exists(image_path):
@@ -251,7 +260,10 @@ def analyze_image(image_path, output_dir="results"):
     print(f"📏 Image size: {image.shape[1]}x{image.shape[0]}")
 
     # Stage 1: Detect persons
+    stage1_start = time.time()
     person_detections = detect_persons(person_detector, image)
+    stage1_time = (time.time() - stage1_start) * 1000  # ms
+
     if not person_detections:
         print("❌ No persons detected in image")
         return False
@@ -262,14 +274,19 @@ def analyze_image(image_path, output_dir="results"):
     # Draw results
     annotated_image = draw_detections(image, classified_detections)
 
-    # Print summary
-    print_detection_summary(classified_detections)
+    # Print summary with timing info
+    stage2_time = None
+    if classified_detections and '_stage2_time' in classified_detections[0]:
+        stage2_time = classified_detections[0]['_stage2_time']
+        del classified_detections[0]['_stage2_time']
+
+    print_detection_summary(classified_detections, stage1_time, stage2_time)
 
     # Save result
     output_path = Path(output_dir)
     output_path.mkdir(exist_ok=True)
 
-    result_filename = f"{Path(image_path).stem}_two_stage_detected.jpg"
+    result_filename = f"{Path(image_path).stem}_advanced_detected.jpg"
     result_path = output_path / result_filename
 
     cv2.imwrite(str(result_path), annotated_image)
@@ -278,27 +295,80 @@ def analyze_image(image_path, output_dir="results"):
 
     return True
 
+def process_all_images(input_dir="../test_images", output_dir="results"):
+    """Process all JPG images in the specified directory"""
+    print(f"\n🔍 Searching for JPG images in: {input_dir}")
+
+    # Find all JPG files
+    jpg_files = glob.glob(os.path.join(input_dir, "*.jpg"))
+    jpg_files.extend(glob.glob(os.path.join(input_dir, "*.JPG")))
+
+    if not jpg_files:
+        print(f"❌ No JPG images found in {input_dir}")
+        return False
+
+    print(f"✅ Found {len(jpg_files)} JPG image(s)")
+
+    success_count = 0
+    for img_path in jpg_files:
+        if analyze_image(img_path, output_dir):
+            success_count += 1
+
+    print(f"\n{'='*60}")
+    print(f"🎉 Batch Processing Complete!")
+    print(f"   Successfully processed: {success_count}/{len(jpg_files)} images")
+    print(f"{'='*60}")
+
+    return success_count > 0
+
 def main():
     """Main function with argument parsing"""
-    parser = argparse.ArgumentParser(description="Two-stage staff detection")
-    parser.add_argument("--image", default="/var/folders/my/6rhf0w256qjf5fh3c8qr5qtm0000gn/T/TemporaryItems/NSIRD_screencaptureui_kWg15q/Screenshot 2025-09-27 at 23.47.03.png",
-                       help="Path to input image")
+    parser = argparse.ArgumentParser(
+        description="Two-stage advanced staff detection (trained on 3000+ images, 6 camera angles)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Process single image
+  python3 yolo_two_stage_advanced.py --image ../test_images/test_image_two.jpg
+
+  # Process all JPG images in test_images directory
+  python3 yolo_two_stage_advanced.py --batch
+
+  # Custom confidence thresholds
+  python3 yolo_two_stage_advanced.py --image ../test_images/test.jpg --person_conf 0.4 --staff_conf 0.6
+        """
+    )
+    parser.add_argument("--image", help="Path to input image")
+    parser.add_argument("--batch", action="store_true",
+                       help="Process all JPG images in test_images directory (../test_images)")
+    parser.add_argument("--input_dir", default="../test_images",
+                       help="Input directory for batch processing (default: ../test_images)")
     parser.add_argument("--output", default="results", help="Output directory")
-    parser.add_argument("--person_conf", type=float, default=PERSON_CONF_THRESHOLD,
-                       help="Person detection confidence threshold")
-    parser.add_argument("--staff_conf", type=float, default=STAFF_CONF_THRESHOLD,
-                       help="Staff classification confidence threshold")
+    parser.add_argument("--person_conf", type=float, default=0.3,
+                       help="Person detection confidence threshold (default: 0.3)")
+    parser.add_argument("--staff_conf", type=float, default=0.5,
+                       help="Staff classification confidence threshold (default: 0.5)")
 
     args = parser.parse_args()
 
-    # Analyze image with custom thresholds
-    success = analyze_image_with_params(args.image, args.output, args.person_conf, args.staff_conf)
+    # Update global thresholds if specified
+    global PERSON_CONF_THRESHOLD, STAFF_CONF_THRESHOLD
+    PERSON_CONF_THRESHOLD = args.person_conf
+    STAFF_CONF_THRESHOLD = args.staff_conf
 
-    if not success:
-        print("❌ Analysis failed")
+    # Batch processing mode
+    if args.batch:
+        success = process_all_images(args.input_dir, args.output)
+        return 0 if success else 1
+
+    # Single image mode
+    if not args.image:
+        parser.print_help()
+        print("\n❌ Error: Please specify --image or use --batch mode")
         return 1
 
-    return 0
+    success = analyze_image(args.image, args.output)
+    return 0 if success else 1
 
 if __name__ == "__main__":
     exit(main())

@@ -61,154 +61,276 @@ HTML_TEMPLATE = '''
 <html>
 <head>
     <title>Image Labeling Tool</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            background-color: #2c3e50;
-            color: white;
+        * {
             margin: 0;
-            padding: 20px;
-            text-align: center;
+            padding: 0;
+            box-sizing: border-box;
         }
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #000000 0%, #1a1a1a 100%);
+            color: #e0e0e0;
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
         }
-        h1 {
-            color: #ecf0f1;
+
+        .header {
+            padding: 12px 20px;
+            background: rgba(30, 30, 30, 0.95);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
         }
-        .image-container {
-            background: #34495e;
-            padding: 20px;
-            border-radius: 10px;
-            margin: 20px 0;
-        }
-        #current-image {
+
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
             max-width: 100%;
-            max-height: 600px;
-            border: 2px solid #16a085;
-            border-radius: 5px;
         }
-        .controls {
-            margin: 20px 0;
+
+        h1 {
+            font-size: 1.3rem;
+            font-weight: 600;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
         }
-        button {
-            font-size: 20px;
-            padding: 15px 30px;
-            margin: 0 10px;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            transition: background-color 0.3s;
-        }
-        .btn-waiter {
-            background-color: #3498db;
-            color: white;
-        }
-        .btn-waiter:hover {
-            background-color: #2980b9;
-        }
-        .btn-customer {
-            background-color: #e74c3c;
-            color: white;
-        }
-        .btn-customer:hover {
-            background-color: #c0392b;
-        }
-        .btn-skip {
-            background-color: #95a5a6;
-            color: white;
-        }
-        .btn-skip:hover {
-            background-color: #7f8c8d;
-        }
-        .btn-back {
-            background-color: #f39c12;
-            color: white;
-        }
-        .btn-back:hover {
-            background-color: #e67e22;
-        }
-        .progress {
-            background: #34495e;
-            border-radius: 10px;
-            padding: 20px;
-            margin: 20px 0;
-        }
-        .progress-bar {
-            background: #27ae60;
-            height: 30px;
-            border-radius: 5px;
-            transition: width 0.3s;
-        }
+
         .stats {
             display: flex;
-            justify-content: space-around;
-            margin: 20px 0;
+            gap: 15px;
+            align-items: center;
         }
+
         .stat-box {
-            background: #34495e;
-            padding: 15px;
-            border-radius: 5px;
-            min-width: 150px;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 8px 15px;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
         }
+
+        .stat-box strong {
+            font-size: 1.1rem;
+            margin-left: 5px;
+        }
+
+        .progress-container {
+            background: rgba(255, 255, 255, 0.05);
+            height: 4px;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            height: 100%;
+            transition: width 0.4s ease;
+            box-shadow: 0 0 10px rgba(102, 126, 234, 0.5);
+        }
+
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            overflow: hidden;
+        }
+
+        .image-container {
+            width: 100%;
+            height: 70vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+
+        #current-image {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            border-radius: 12px;
+            border: 6px solid #ef4444;
+            box-shadow: 0 0 40px rgba(239, 68, 68, 0.6);
+            transition: all 0.3s ease;
+        }
+
+        #current-image.waiter {
+            border-color: #3b82f6;
+            box-shadow: 0 0 40px rgba(59, 130, 246, 0.6);
+        }
+
+        #current-image.customer {
+            border-color: #ef4444;
+            box-shadow: 0 0 40px rgba(239, 68, 68, 0.6);
+        }
+
+        .label-indicator {
+            text-align: center;
+            margin-bottom: 15px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            padding: 10px 25px;
+            border-radius: 25px;
+            display: inline-block;
+            transition: all 0.3s ease;
+        }
+
+        .label-indicator.waiter {
+            background: rgba(59, 130, 246, 0.2);
+            color: #60a5fa;
+            border: 2px solid #3b82f6;
+        }
+
+        .label-indicator.customer {
+            background: rgba(239, 68, 68, 0.2);
+            color: #f87171;
+            border: 2px solid #ef4444;
+        }
+
+        .controls {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
+
+        button {
+            font-size: 0.95rem;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 500;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        .btn-waiter {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            color: white;
+        }
+
+        .btn-customer {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            color: white;
+        }
+
+        .btn-back {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            color: white;
+        }
+
+        .btn-save {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            padding: 10px 30px;
+            font-size: 1rem;
+        }
+
         .keyboard-hints {
-            background: #34495e;
-            padding: 15px;
-            border-radius: 5px;
-            margin-top: 20px;
-            font-size: 14px;
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            background: rgba(30, 30, 30, 0.9);
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 0.75rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+        }
+
+        #image-name {
+            font-size: 0.75rem;
+            color: #888;
+            margin-top: 5px;
+            text-align: center;
+        }
+
+        @media (max-height: 800px) {
+            .image-container {
+                height: 65vh;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .stats {
+                gap: 8px;
+            }
+            .stat-box {
+                padding: 6px 10px;
+                font-size: 0.75rem;
+            }
+            h1 {
+                font-size: 1.1rem;
+            }
+            button {
+                font-size: 0.85rem;
+                padding: 8px 15px;
+            }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>👤 Person Classification Tool</h1>
-
-        <div class="progress">
-            <div>Progress: <span id="current">0</span> / <span id="total">0</span></div>
-            <div style="background: #2c3e50; margin-top: 10px;">
-                <div class="progress-bar" id="progress-bar"></div>
+    <div class="header">
+        <div class="header-content">
+            <h1>👤 Person Classification Tool</h1>
+            <div class="stats">
+                <div class="stat-box">
+                    👔 <strong id="waiter-count">0</strong>
+                </div>
+                <div class="stat-box">
+                    🧑 <strong id="customer-count">0</strong>
+                </div>
+                <div class="stat-box">
+                    <span id="current">0</span>/<span id="total">0</span>
+                </div>
             </div>
         </div>
+        <div class="progress-container">
+            <div class="progress-bar" id="progress-bar"></div>
+        </div>
+    </div>
 
-        <div class="stats">
-            <div class="stat-box">
-                <h3>👔 Waiters</h3>
-                <div id="waiter-count">0</div>
-            </div>
-            <div class="stat-box">
-                <h3>🧑 Customers</h3>
-                <div id="customer-count">0</div>
-            </div>
-            <div class="stat-box">
-                <h3>📝 Total Labeled</h3>
-                <div id="labeled-count">0</div>
-            </div>
+    <div class="main-content">
+        <div class="label-indicator customer" id="label-indicator">
+            🧑 Customer
         </div>
 
         <div class="image-container">
-            <img id="current-image" src="" alt="Current Image">
-            <div id="image-name" style="margin-top: 10px; font-size: 12px; color: #95a5a6;"></div>
+            <img id="current-image" class="customer" src="" alt="Current Image">
         </div>
 
-        <div style="background: #34495e; padding: 20px; border-radius: 10px; margin: 20px 0;">
-            <h2>Current Selection: <span id="current-label" style="color: #e74c3c;">🧑 Customer</span></h2>
-            <p style="color: #95a5a6;">Press SPACE to toggle between Waiter/Customer</p>
-        </div>
+        <div id="image-name"></div>
 
         <div class="controls">
-            <button class="btn-back" onclick="previousImage()">⬅️ Previous (←)</button>
+            <button class="btn-back" onclick="previousImage()">⬅️ Previous</button>
             <button class="btn-waiter" onclick="setLabel('waiter')">👔 Waiter</button>
             <button class="btn-customer" onclick="setLabel('customer')">🧑 Customer</button>
-            <button style="background-color: #27ae60; color: white; padding: 15px 40px;" onclick="saveAndNext()">
-                ✅ Save & Next (Enter)
-            </button>
+            <button class="btn-save" onclick="saveAndNext()">✅ Save & Next</button>
         </div>
+    </div>
 
-        <div class="keyboard-hints">
-            ⌨️ Keyboard Shortcuts: Space = Toggle | Enter = Save & Next | ← = Previous
-        </div>
+    <div class="keyboard-hints">
+        ⌨️ Space=Toggle | Enter=Save | ←=Prev
     </div>
 
     <script>
@@ -219,24 +341,15 @@ HTML_TEMPLATE = '''
 
         // Update UI to show current selection
         function updateLabelButtons() {
-            const waiterBtn = document.querySelector('.btn-waiter');
-            const customerBtn = document.querySelector('.btn-customer');
+            const image = document.getElementById('current-image');
+            const indicator = document.getElementById('label-indicator');
 
-            if (currentLabel === 'waiter') {
-                waiterBtn.style.opacity = '1';
-                waiterBtn.style.boxShadow = '0 0 20px rgba(52, 152, 219, 0.8)';
-                customerBtn.style.opacity = '0.5';
-                customerBtn.style.boxShadow = 'none';
-            } else {
-                customerBtn.style.opacity = '1';
-                customerBtn.style.boxShadow = '0 0 20px rgba(231, 76, 60, 0.8)';
-                waiterBtn.style.opacity = '0.5';
-                waiterBtn.style.boxShadow = 'none';
-            }
+            // Update image border class
+            image.className = currentLabel;
 
-            // Update label display
-            document.getElementById('current-label').textContent =
-                currentLabel === 'waiter' ? '👔 Waiter' : '🧑 Customer';
+            // Update label indicator
+            indicator.className = `label-indicator ${currentLabel}`;
+            indicator.textContent = currentLabel === 'waiter' ? '👔 Waiter' : '🧑 Customer';
         }
 
         // Keyboard shortcuts
@@ -268,7 +381,6 @@ HTML_TEMPLATE = '''
                         document.getElementById('total').textContent = data.total;
                         document.getElementById('waiter-count').textContent = data.waiter_count;
                         document.getElementById('customer-count').textContent = data.customer_count;
-                        document.getElementById('labeled-count').textContent = data.labeled_count;
 
                         // Update progress bar
                         const progress = ((data.index + 1) / data.total) * 100;

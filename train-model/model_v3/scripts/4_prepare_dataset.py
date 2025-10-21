@@ -1,156 +1,149 @@
 #!/usr/bin/env python3
-# Version: 2.0
-# Prepare YOLO training dataset from manually labeled images
-# Creates train/val split and YOLO format labels
+# Version: 3.0 - YOLO Classification Format
+# Prepare YOLO classification dataset from manually labeled images
+# Creates train/val split with class-based folder structure (no label files needed)
 
 import os
 import shutil
 from pathlib import Path
 import random
-import cv2
 
 # Paths
 LABELED_DIR = "../labeled-persons"
 DATASET_DIR = "../dataset"
 TRAIN_RATIO = 0.8  # 80% for training, 20% for validation
 
-# Class mapping
-CLASS_NAMES = {
-    'waiter': 0,
-    'customer': 1
-}
-
-def create_yolo_label(image_path, class_id):
-    """Create YOLO format label file"""
-    # For person detection, use full image as bounding box
-    # Format: class_id x_center y_center width height (all normalized 0-1)
-    return f"{class_id} 0.5 0.5 1.0 1.0\n"
-
-def prepare_dataset():
-    """Prepare dataset from manually labeled images"""
-    print("🚀 Preparing YOLO training dataset from labeled images...")
-
-    # Create dataset structure
-    train_img_dir = os.path.join(DATASET_DIR, "images", "train")
-    val_img_dir = os.path.join(DATASET_DIR, "images", "val")
-    train_lbl_dir = os.path.join(DATASET_DIR, "labels", "train")
-    val_lbl_dir = os.path.join(DATASET_DIR, "labels", "val")
-
-    for dir_path in [train_img_dir, val_img_dir, train_lbl_dir, val_lbl_dir]:
-        os.makedirs(dir_path, exist_ok=True)
-
-    # Collect all labeled images
-    all_data = []
-
-    # Check for labeled directories
-    waiter_dir = Path(LABELED_DIR) / "waiters"
-    customer_dir = Path(LABELED_DIR) / "customers"
-
-    if not waiter_dir.exists() or not customer_dir.exists():
-        print("❌ No labeled data found!")
-        print(f"   Expected directories:")
-        print(f"   - {waiter_dir}")
-        print(f"   - {customer_dir}")
-        print("\n📝 Please run 3_label_images.py first to label your images")
-        return
-
-    # Collect waiter images (recursively search subdirectories)
-    waiter_images = list(waiter_dir.glob("**/*.jpg")) + list(waiter_dir.glob("**/*.png"))
-    for img_path in waiter_images:
-        all_data.append((img_path, CLASS_NAMES['waiter'], 'waiter'))
-    print(f"✅ Found {len(waiter_images)} waiter images")
-
-    # Collect customer images (recursively search subdirectories)
-    customer_images = list(customer_dir.glob("**/*.jpg")) + list(customer_dir.glob("**/*.png"))
-    for img_path in customer_images:
-        all_data.append((img_path, CLASS_NAMES['customer'], 'customer'))
-    print(f"✅ Found {len(customer_images)} customer images")
-
-    if not all_data:
-        print("❌ No labeled images found in directories")
-        return
-    
-    # Shuffle and split data
-    random.shuffle(all_data)
-    split_idx = int(len(all_data) * TRAIN_RATIO)
-    train_data = all_data[:split_idx]
-    val_data = all_data[split_idx:]
-    
-    print(f"\n📊 Dataset split:")
-    print(f"   Training: {len(train_data)} images")
-    print(f"   Validation: {len(val_data)} images")
-    
-    # Copy images and create labels
-    def process_split(data, img_dir, lbl_dir, split_name):
-        waiter_count = 0
-        customer_count = 0
-        
-        for i, (img_path, class_id, class_name) in enumerate(data):
-            # New filename
-            new_name = f"{split_name}_{i:05d}.jpg"
-            
-            # Copy image
-            dest_img = os.path.join(img_dir, new_name)
-            shutil.copy2(img_path, dest_img)
-            
-            # Create label
-            label_content = create_yolo_label(dest_img, class_id)
-            label_path = os.path.join(lbl_dir, new_name.replace('.jpg', '.txt'))
-            with open(label_path, 'w') as f:
-                f.write(label_content)
-            
-            # Count classes
-            if class_name == 'waiter':
-                waiter_count += 1
-            else:
-                customer_count += 1
-        
-        return waiter_count, customer_count
-    
-    # Process training set
-    print("\n📝 Creating training set...")
-    train_w, train_c = process_split(train_data, train_img_dir, train_lbl_dir, "train")
-    
-    # Process validation set
-    print("📝 Creating validation set...")
-    val_w, val_c = process_split(val_data, val_img_dir, val_lbl_dir, "val")
-    
-    # Create data.yaml for YOLO training
-    yaml_content = f"""# Restaurant Staff Detection Dataset
-path: {os.path.abspath(DATASET_DIR)}
-train: images/train
-val: images/val
-
 # Classes
-nc: 2
-names: ['waiter', 'customer']
+CLASSES = ['waiter', 'customer']
 
-# Dataset info
-train_samples: {len(train_data)}
-val_samples: {len(val_data)}
-train_waiters: {train_w}
-train_customers: {train_c}
-val_waiters: {val_w}
-val_customers: {val_c}
+def prepare_classification_dataset():
+    """Prepare YOLO classification dataset from manually labeled images"""
+    print("🚀 Preparing YOLO Classification dataset from labeled images...")
+    print("📝 Format: ImageFolder structure (no label files needed)")
+
+    # Create dataset structure for YOLO classification
+    # Structure: dataset/train/waiter/, dataset/train/customer/, etc.
+    train_dir = os.path.join(DATASET_DIR, "train")
+    val_dir = os.path.join(DATASET_DIR, "val")
+
+    for split_dir in [train_dir, val_dir]:
+        for class_name in CLASSES:
+            class_dir = os.path.join(split_dir, class_name)
+            os.makedirs(class_dir, exist_ok=True)
+
+    # Collect all labeled images by class
+    all_data = {}
+
+    for class_name in CLASSES:
+        class_dir = Path(LABELED_DIR) / f"{class_name}s"  # waiters, customers
+
+        if not class_dir.exists():
+            print(f"❌ {class_name.capitalize()} directory not found: {class_dir}")
+            print("📝 Please run 3_label_images.py first to label your images")
+            return
+
+        # Collect all images (recursively search subdirectories like camera_22, camera_35)
+        images = list(class_dir.glob("**/*.jpg")) + list(class_dir.glob("**/*.png"))
+        all_data[class_name] = images
+        print(f"✅ Found {len(images)} {class_name} images")
+
+    if not any(all_data.values()):
+        print("❌ No labeled images found in any class directory")
+        return
+
+    # Shuffle and split each class independently to maintain class balance
+    print(f"\n📊 Creating train/val split ({int(TRAIN_RATIO*100)}/{int((1-TRAIN_RATIO)*100)})...")
+
+    stats = {
+        'train': {},
+        'val': {}
+    }
+
+    for class_name, images in all_data.items():
+        # Shuffle images
+        random.shuffle(images)
+
+        # Split
+        split_idx = int(len(images) * TRAIN_RATIO)
+        train_images = images[:split_idx]
+        val_images = images[split_idx:]
+
+        # Copy training images
+        train_class_dir = os.path.join(train_dir, class_name)
+        for i, img_path in enumerate(train_images):
+            dest_name = f"train_{class_name}_{i:05d}{img_path.suffix}"
+            dest_path = os.path.join(train_class_dir, dest_name)
+            shutil.copy2(img_path, dest_path)
+
+        # Copy validation images
+        val_class_dir = os.path.join(val_dir, class_name)
+        for i, img_path in enumerate(val_images):
+            dest_name = f"val_{class_name}_{i:05d}{img_path.suffix}"
+            dest_path = os.path.join(val_class_dir, dest_name)
+            shutil.copy2(img_path, dest_path)
+
+        # Save stats
+        stats['train'][class_name] = len(train_images)
+        stats['val'][class_name] = len(val_images)
+
+        print(f"   {class_name.capitalize()}: {len(train_images)} train, {len(val_images)} val")
+
+    # Calculate totals
+    total_train = sum(stats['train'].values())
+    total_val = sum(stats['val'].values())
+
+    # Create data.yaml for YOLO classification training
+    yaml_content = f"""# Restaurant Staff Classification Dataset (YOLO Classification Format)
+# This is a classification task - folder structure defines classes, no label files needed
+path: {os.path.abspath(DATASET_DIR)}
+train: train
+val: val
+
+# Classes (MUST match alphabetical folder order: customer, waiter)
+names:
+  0: customer
+  1: waiter
+
+# Dataset statistics
+train_samples: {total_train}
+val_samples: {total_val}
+train_waiters: {stats['train']['waiter']}
+train_customers: {stats['train']['customer']}
+val_waiters: {stats['val']['waiter']}
+val_customers: {stats['val']['customer']}
 """
-    
+
     yaml_path = os.path.join(DATASET_DIR, "data.yaml")
     with open(yaml_path, 'w') as f:
         f.write(yaml_content)
-    
-    print(f"\n✅ Dataset prepared successfully!")
-    print(f"📊 Class distribution:")
-    print(f"   Training: {train_w} waiters, {train_c} customers")
-    print(f"   Validation: {val_w} waiters, {val_c} customers")
-    print(f"📁 Dataset location: {DATASET_DIR}")
-    print(f"📄 Config file: {yaml_path}")
-    print("\n🎯 Ready for training! Run: 5_train_model.py")
+
+    print(f"\n✅ Classification dataset prepared successfully!")
+    print(f"\n📊 Final Statistics:")
+    print(f"   Total images: {total_train + total_val}")
+    print(f"   Training: {total_train} ({stats['train']['waiter']} waiters, {stats['train']['customer']} customers)")
+    print(f"   Validation: {total_val} ({stats['val']['waiter']} waiters, {stats['val']['customer']} customers)")
+    print(f"\n📁 Dataset structure:")
+    print(f"   {DATASET_DIR}/")
+    print(f"   ├── train/")
+    print(f"   │   ├── waiter/     ({stats['train']['waiter']} images)")
+    print(f"   │   └── customer/   ({stats['train']['customer']} images)")
+    print(f"   └── val/")
+    print(f"       ├── waiter/     ({stats['val']['waiter']} images)")
+    print(f"       └── customer/   ({stats['val']['customer']} images)")
+    print(f"\n📄 Config file: {yaml_path}")
+    print("\n🎯 Ready for YOLO classification training!")
+    print("   Next: Run 5_train_model.py")
 
 if __name__ == "__main__":
     try:
-        prepare_dataset()
-        os.system('say "Dataset preparation completed successfully"')
+        # Set random seed for reproducibility
+        random.seed(42)
+
+        prepare_classification_dataset()
+        os.system('say "Classification dataset preparation completed successfully"')
     except Exception as e:
         print(f"\n❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
         os.system('say "Dataset preparation failed with error"')
         raise

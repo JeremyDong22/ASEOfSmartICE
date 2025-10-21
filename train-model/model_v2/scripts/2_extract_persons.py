@@ -14,7 +14,7 @@ import glob
 # Paths
 IMAGES_DIR = "../raw_images"
 OUTPUT_DIR = "../extracted-persons"
-MODEL_PATH = "../../model/yolov8s.pt"  # Use existing model
+MODEL_PATH = "yolov8s.pt"  # Ultralytics will auto-download if not present
 
 # Extraction settings
 MIN_PERSON_SIZE = 30  # Minimum pixel size for person detection
@@ -143,4 +143,10 @@ def process_all_images():
     print("3. Run 4_prepare_dataset.py to prepare training dataset")
 
 if __name__ == "__main__":
-    process_all_images()
+    try:
+        process_all_images()
+        os.system('say "Person extraction completed successfully"')
+    except Exception as e:
+        print(f"\n❌ Error: {e}")
+        os.system('say "Person extraction failed with error"')
+        raise
