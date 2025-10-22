@@ -18,7 +18,7 @@ import uuid
 
 # Supabase Configuration (Same as screenshot capture system)
 SUPABASE_URL = "https://wdpeoyugsxqnpwwtkqsl.supabase.co"
-SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndkcGVveXVnc3hxbnB3d3RrcXNsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjY2NTQ0NzEsImV4cCI6MjA0MjIzMDQ3MX0.y93Kc-3VxJoK1F1i_8Ld1j1HUJwJy-iqNCdAFqBd9cE"
+SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndkcGVveXVnc3hxbnB3d3RrcXNsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQxNDgwNzgsImV4cCI6MjA1OTcyNDA3OH0.9bUpuZCOZxDSH3KsIu6FwWZyAvnV5xPJGNpO3luxWOE"
 STORAGE_BUCKET = "ASE"
 
 # Camera configurations
