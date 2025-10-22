@@ -79,3 +79,10 @@ test-model/**/*.png
 sub-stream/screenshots/
 sub-stream/**/*.jpg
 sub-stream/**/*.png
+
+# Node.js
+node_modules/
+package-lock.json
+
+# MCP Configuration (contains sensitive tokens)
+claude_mcp_config.json
