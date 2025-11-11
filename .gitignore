@@ -60,6 +60,14 @@ train-model/dataset/
 train-model/models/
 train-model/videos/
 
+# Versioned model directories (model_v2, model_v3, etc.)
+train-model/model_v*/dataset/
+train-model/model_v*/extracted-persons/
+train-model/model_v*/labeled-persons/
+train-model/model_v*/models/
+train-model/model_v*/models_*/
+train-model/model_v*/raw_images/
+
 # Test model video outputs
 test-model/linux_rtx_video_streaming/videos/
 
