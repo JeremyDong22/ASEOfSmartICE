@@ -569,8 +569,12 @@ def draw_detections_with_alert(frame, detections, roi_polygon, tracker, alert_ac
     return annotated_frame
 
 
-def process_video(video_path, person_detector, staff_classifier, roi_polygon, output_dir="results", duration_limit=None):
+def process_video(video_path, person_detector, staff_classifier, roi_polygon, output_dir=None, duration_limit=None):
     """Process video with ROI filtering and alert system"""
+    # Default output to script's own results directory
+    if output_dir is None:
+        output_dir = str(Path(__file__).parent / "results")
+
     print(f"\n{'='*70}")
     print(f"🎬 Processing Video with ROI + Alert System")
     print(f"{'='*70}")
@@ -776,7 +780,7 @@ Examples:
         """
     )
     parser.add_argument("--video", required=True, help="Path to input video")
-    parser.add_argument("--output", default="results", help="Output directory")
+    parser.add_argument("--output", default=str(Path(__file__).parent / "results"), help="Output directory")
     parser.add_argument("--duration", type=int, default=None,
                        help="Process only first N seconds of video (default: process entire video)")
     parser.add_argument("--person_conf", type=float, default=0.3,

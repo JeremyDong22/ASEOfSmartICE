@@ -1075,8 +1075,12 @@ def draw_detections_and_tables(frame, detections, tables, sitting_areas, service
     return annotated_frame
 
 
-def process_video(video_path, person_detector, staff_classifier, tables, sitting_areas, service_areas, output_dir="results", duration_limit=None):
+def process_video(video_path, person_detector, staff_classifier, tables, sitting_areas, service_areas, output_dir=None, duration_limit=None):
     """Process video with multi-table state detection, sitting areas, and service area tracking"""
+    # Default output to script's own results directory
+    if output_dir is None:
+        output_dir = str(Path(__file__).parent / "results")
+
     print(f"\n{'='*70}")
     print(f"Processing Video with Table State Detection")
     print(f"{'='*70}")
@@ -1237,7 +1241,7 @@ Note: Service areas (walkways between tables) help track waiter positions
         """
     )
     parser.add_argument("--video", required=True, help="Path to input video")
-    parser.add_argument("--output", default="results", help="Output directory")
+    parser.add_argument("--output", default=str(Path(__file__).parent / "results"), help="Output directory")
     parser.add_argument("--duration", type=int, default=None,
                        help="Process only first N seconds of video (default: process entire video)")
     parser.add_argument("--person_conf", type=float, default=0.3,
