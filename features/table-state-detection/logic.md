@@ -21,12 +21,12 @@
 
 每张餐桌处于4个互斥状态之一：
 
-| 状态 | 条件 | 视觉指标 | 持续时间缓冲 |
-|------|------|---------|-------------|
-| **IDLE（空闲）** | 桌旁无人 | 餐桌区域空置 | 3-5秒 |
-| **OCCUPIED（使用中）** | 仅有顾客 | 顾客坐着/站立 | 5秒以上 |
-| **SERVING（服务中）** | 顾客+服务员 | 双方同时在场 | 即时 |
-| **CLEANING（清理中）** | 仅有服务员（无顾客）| 服务员清理/擦桌 | 3-5秒 |
+| 状态 | 条件 | 视觉指标 | 持续时间缓冲 | 颜色 |
+|------|------|---------|-------------|------|
+| **IDLE（空闲）** | 桌旁无人 | 餐桌区域空置 | 1秒 | 绿色 (GREEN) |
+| **OCCUPIED（使用中）** | 仅有顾客 | 顾客坐着/站立 | 1秒 | 黄色 (YELLOW) |
+| **SERVING（服务中）** | 顾客+服务员 | 双方同时在场 | 1秒 | 橙色 (ORANGE) |
+| **CLEANING（清理中）** | 仅有服务员（无顾客）| 服务员清理/擦桌 | 1秒 | 蓝色 (BLUE) |
 
 ### 状态转换
 
@@ -38,22 +38,21 @@ IDLE → OCCUPIED → SERVING ⟷ OCCUPIED → CLEANING → IDLE
 
 1. **IDLE → OCCUPIED**
    - 顾客进入餐桌ROI区域
-   - 必须保持稳定5秒以上以避免误触发
+   - 必须保持稳定1秒以上以避免误触发
    - 记录 `session_start_time`（会话开始时间）
 
 2. **OCCUPIED ⟷ SERVING**
-   - OCCUPIED → SERVING：服务员接近餐桌
-   - SERVING → OCCUPIED：服务员离开餐桌
+   - OCCUPIED → SERVING：服务员接近餐桌（1秒缓冲）
+   - SERVING → OCCUPIED：服务员离开餐桌（1秒缓冲）
    - 双向转换（每个会话期间可发生多次）
 
 3. **OCCUPIED → CLEANING**
    - 所有顾客离开餐桌区域
-   - 必须空置3分钟以上（处理上厕所情况）
-   - 服务员出现并停留3秒以上（60秒窗口内累计）
+   - 服务员出现并停留1秒以上
    - 记录 `session_end_time`（会话结束时间）
 
 4. **CLEANING → IDLE**
-   - 服务员完成清理并离开
+   - 服务员完成清理并离开（1秒缓冲）
    - 餐桌准备好迎接下一批顾客
    - 重置所有会话数据
 
@@ -88,16 +87,16 @@ IDLE → OCCUPIED → SERVING ⟷ OCCUPIED → CLEANING → IDLE
 
 ```
 if customers_present == 0 and waiters_present == 0:
-    state = IDLE（3-5秒缓冲后）
+    state = IDLE（1秒缓冲后）
 
 elif customers_present > 0 and waiters_present == 0:
-    state = OCCUPIED（稳定5秒后）
+    state = OCCUPIED（1秒缓冲后）
 
 elif customers_present > 0 and waiters_present > 0:
-    state = SERVING（即时，无缓冲）
+    state = SERVING（1秒缓冲后）
 
 elif customers_present == 0 and waiters_present > 0:
-    state = CLEANING（累计3秒服务员活动后）
+    state = CLEANING（1秒缓冲后）
 ```
 
 ---

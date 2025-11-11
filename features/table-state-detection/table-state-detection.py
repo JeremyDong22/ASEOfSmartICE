@@ -69,7 +69,7 @@ MIN_PERSON_SIZE = 40
 TABLE_CONFIG_FILE = "table_config.json"
 
 # State transition parameters
-STATE_DEBOUNCE_SECONDS = 2.0  # State must be stable for 2s before confirming change
+STATE_DEBOUNCE_SECONDS = 1.0  # State must be stable for 1s before confirming change
 
 # Visual configuration
 COLORS = {
@@ -1138,7 +1138,13 @@ def process_video(video_path, person_detector, staff_classifier, tables, sitting
 
     print("Processing frames...")
     print(f"Monitoring {len(tables)} tables, {len(sitting_areas)} sitting areas, {len(service_areas)} service areas")
-    print(f"State debounce: {STATE_DEBOUNCE_SECONDS}s\n")
+    print(f"State debounce: {STATE_DEBOUNCE_SECONDS}s")
+    print("\nTable State Colors (in output video):")
+    print("  GREEN   - IDLE (空闲): Empty table, no customers or staff")
+    print("  YELLOW  - OCCUPIED (用餐): Customers present, no staff")
+    print("  ORANGE  - SERVING (服务): Both customers and staff present")
+    print("  BLUE    - CLEANING (清台): Staff only, no customers")
+    print()
 
     try:
         while True:
