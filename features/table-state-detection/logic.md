@@ -17,44 +17,40 @@
 
 ## 状态机设计
 
-### 4个状态
+### 3个状态
 
-每张餐桌处于4个互斥状态之一：
+每张餐桌处于3个互斥状态之一：
 
 | 状态 | 条件 | 视觉指标 | 持续时间缓冲 | 颜色 |
 |------|------|---------|-------------|------|
 | **IDLE（空闲）** | 桌旁无人 | 餐桌区域空置 | 1秒 | 绿色 (GREEN) |
-| **OCCUPIED（使用中）** | 仅有顾客 | 顾客坐着/站立 | 1秒 | 黄色 (YELLOW) |
-| **SERVING（服务中）** | 顾客+服务员 | 双方同时在场 | 1秒 | 橙色 (ORANGE) |
-| **CLEANING（清理中）** | 仅有服务员（无顾客）| 服务员清理/擦桌 | 1秒 | 蓝色 (BLUE) |
+| **BUSY（用餐中）** | 仅有顾客 | 顾客坐着/站立用餐 | 1秒 | 黄色 (YELLOW) |
+| **CLEANING（清理中）** | 有服务员在场 | 服务员清理/服务/擦桌 | 1秒 | 蓝色 (BLUE) |
 
 ### 状态转换
 
 ```
-IDLE → OCCUPIED → SERVING ⟷ OCCUPIED → CLEANING → IDLE
+IDLE → BUSY → CLEANING → IDLE
 ```
 
 **详细流程：**
 
-1. **IDLE → OCCUPIED**
-   - 顾客进入餐桌ROI区域
+1. **IDLE → BUSY**
+   - 顾客进入餐桌或座位区域
    - 必须保持稳定1秒以上以避免误触发
    - 记录 `session_start_time`（会话开始时间）
 
-2. **OCCUPIED ⟷ SERVING**
-   - OCCUPIED → SERVING：服务员接近餐桌（1秒缓冲）
-   - SERVING → OCCUPIED：服务员离开餐桌（1秒缓冲）
-   - 双向转换（每个会话期间可发生多次）
+2. **BUSY → CLEANING**
+   - 检测到服务员在餐桌或座位区域（无论顾客是否在场）
+   - 服务员停留1秒以上确认状态
+   - 如果顾客已离开，记录 `session_end_time`（会话结束时间）
 
-3. **OCCUPIED → CLEANING**
-   - 所有顾客离开餐桌区域
-   - 服务员出现并停留1秒以上
-   - 记录 `session_end_time`（会话结束时间）
-
-4. **CLEANING → IDLE**
+3. **CLEANING → IDLE**
    - 服务员完成清理并离开（1秒缓冲）
    - 餐桌准备好迎接下一批顾客
    - 重置所有会话数据
+
+**注意**：CLEANING状态优先级最高，只要检测到服务员在场，无论顾客是否存在，状态都会转为CLEANING。这简化了逻辑并确保服务活动被准确追踪。
 
 ---
 
@@ -63,12 +59,12 @@ IDLE → OCCUPIED → SERVING ⟷ OCCUPIED → CLEANING → IDLE
 ### 输入要求
 
 1. **ROI配置**（手动标注）
-   - 餐桌边界框 (x1, y1, x2, y2)
-   - 座位区域多边形（可选，用于精确判断）
+   - 餐桌多边形区域（4个点）
+   - 座位区域多边形（可选，可多个，用于精确判断）
    - 餐桌容量（座位数）
 
 2. **YOLO检测输出**
-   - 带有track_id的人员边界框
+   - 人员边界框
    - 分类：`customer`（顾客）或 `waiter`（服务员）
    - 置信度分数
 
@@ -77,27 +73,43 @@ IDLE → OCCUPIED → SERVING ⟷ OCCUPIED → CLEANING → IDLE
 ```python
 对于每一帧：
   1. 检测画面中所有人员（YOLOv8m）
-  2. 筛选餐桌ROI内的人员
-  3. 分类为顾客或服务员（YOLO11n-cls）
-  4. 统计：customers_present（顾客数量）, waiters_present（服务员数量）
-  5. 根据计数更新状态机
+  2. 分类为顾客或服务员（YOLO11n-cls）
+  3. 检查餐桌区域内的人员
+  4. 检查座位区域内的人员（计入相关联的餐桌）
+  5. 统计：customers_present（顾客数量）, waiters_present（服务员数量）
+  6. 根据计数更新状态机
 ```
 
 ### 状态判定规则
 
-```
+```python
 if customers_present == 0 and waiters_present == 0:
     state = IDLE（1秒缓冲后）
 
 elif customers_present > 0 and waiters_present == 0:
-    state = OCCUPIED（1秒缓冲后）
+    state = BUSY（1秒缓冲后）
 
-elif customers_present > 0 and waiters_present > 0:
-    state = SERVING（1秒缓冲后）
-
-elif customers_present == 0 and waiters_present > 0:
+elif waiters_present > 0:
+    # 只要有服务员在场，无论顾客是否存在，都是CLEANING状态
     state = CLEANING（1秒缓冲后）
 ```
+
+---
+
+## 区域设计
+
+### 餐桌区域（Table）
+- 标注餐桌实体表面
+- 用于检测放置物品、短暂互动
+- 必需区域
+
+### 座位区域（Sitting Area）
+- 标注椅子/座位周围区域
+- 用于检测坐着用餐的顾客
+- 可选，但建议配置以提高准确率
+- 一张桌子可以有多个座位区域
+
+**不再使用服务区域**：v2.0版本移除了服务区域（Service Area）的概念，因为使用服务区域判断"服务中"状态不够准确。现在系统简化为只要检测到服务员即为CLEANING状态。
 
 ---
 
@@ -108,46 +120,47 @@ elif customers_present == 0 and waiters_present > 0:
 **问题**：所有顾客上厕所2-3分钟 → 餐桌看起来空了
 
 **解决方案**：
-- OCCUPIED → CLEANING 需要餐桌空置3分钟以上
-- 必须检测到60秒窗口内有服务员活动
-- 短暂缺席（<3分钟）保持OCCUPIED状态
+- BUSY → CLEANING 需要检测到服务员
+- 如果无服务员，保持BUSY状态（即使顾客暂时离开）
+- 只有当服务员出现清理时才确认会话结束
 
-### 2. 服务员路过/上菜
+### 2. 服务员快速服务
 
-**问题**：顾客用餐时服务员短暂出现 → 触发SERVING
+**问题**：服务员短暂出现上菜/收盘子 → 触发CLEANING
 
 **解决方案**：
-- SERVING状态是有意且正确的（代表服务互动）
-- 服务员离开后立即转回OCCUPIED
-- 对会话计时无负面影响
+- CLEANING状态是正确的（代表服务互动）
+- 1秒缓冲确保不是误检
+- 服务员离开后根据顾客是否在场转回BUSY或IDLE
+- 对会话计时无负面影响，反而能追踪服务频率
 
 ### 3. 部分顾客离开
 
 **问题**：4人桌中2人提前离开，剩余2人继续用餐
 
 **解决方案**：
-- 跟踪人数历史变化
-- 只要有任何顾客在场，会话继续
-- 仅当所有顾客离开3分钟以上才结束会话
+- 只要有任何顾客在场且无服务员，保持BUSY状态
+- 仅当服务员出现时才转为CLEANING
+- 通过人数变化可以分析用餐模式
 
 ### 4. 快速翻台
 
-**问题**：新顾客在清理前/清理期间到达
+**问题**：新顾客在清理期间到达
 
 **解决方案**：
-- 如果在CLEANING期间检测到顾客：
-  - 立即关闭上一个会话
-  - 用新顾客ID开始新会话
-- 通过POS时间戳进行人工验证
+- CLEANING期间检测到顾客：
+  - 如果顾客在座位区域坐下 → 立即转为BUSY（新会话）
+  - 关闭上一个会话，开始新会话计时
+- 通过POS时间戳进行验证
 
-### 5. 服务员快速清理（<3秒）
+### 5. 顾客自助取餐（如火锅、自助餐）
 
-**问题**：服务员2秒内拿走盘子就走 → 漏检
+**问题**：顾客频繁起身取餐，可能短暂离开座位区域
 
 **解决方案**：
-- 使用60秒滑动窗口
-- 累计所有服务员出现次数（多次快速访问）
-- 如果60秒内累计时间 ≥3秒 → 确认CLEANING
+- 1秒缓冲可以容忍短暂离开
+- 只要餐桌或座位区域有顾客，保持BUSY状态
+- 自助餐厅正常不会频繁出现服务员，BUSY时间较长属正常
 
 ---
 
@@ -157,9 +170,8 @@ elif customers_present == 0 and waiters_present > 0:
 
 | 事件 | 时间戳 | 检测方式 |
 |------|--------|---------|
-| **入座时间** | `session_start_time` | 首次检测到顾客 + 5秒稳定 |
-| **服务开始** | `first_serving_time` | 首次转换到SERVING状态 |
-| **会话结束** | `session_end_time` | 餐桌空置3分钟 + 服务员活动 |
+| **入座时间** | `session_start_time` | 首次检测到顾客（IDLE → BUSY） |
+| **会话结束** | `session_end_time` | 服务员出现清理（BUSY → CLEANING） |
 
 ### 衍生指标
 
@@ -167,11 +179,14 @@ elif customers_present == 0 and waiters_present > 0:
 # 从入座到下单的时间（需要POS数据）
 order_delay = pos_order_time - session_start_time
 
-# 会话持续时间
+# 会话持续时间（用餐时间）
 session_duration = session_end_time - session_start_time
 
-# 服务互动频率
-service_count = SERVING状态转换次数
+# 清理时间
+cleaning_duration = CLEANING状态持续时间
+
+# 翻台效率
+turnover_efficiency = cleaning_duration / session_duration
 ```
 
 ---
@@ -182,12 +197,10 @@ service_count = SERVING状态转换次数
 
 | 参数 | 默认值 | 范围 | 用途 |
 |------|--------|------|------|
-| `SETTLE_THRESHOLD` | 60秒 | 30-120秒 | OCCUPIED状态的最小稳定时间 |
-| `LEAVE_THRESHOLD` | 180秒 | 120-300秒 | 判定离开的最小空置时间 |
-| `CLEANING_MIN_WAITER_TIME` | 3秒 | 2-5秒 | CLEANING状态的最小服务员停留时间 |
-| `CLEANING_WINDOW` | 60秒 | 30-120秒 | 累计服务员活动的时间窗口 |
+| `STATE_DEBOUNCE_SECONDS` | 1秒 | 0.5-3秒 | 状态转换的防抖时间 |
 | `PERSON_CONF_THRESHOLD` | 0.3 | 0.2-0.5 | YOLO人员检测置信度 |
 | `STAFF_CONF_THRESHOLD` | 0.5 | 0.4-0.7 | 服务员分类置信度 |
+| `MIN_PERSON_SIZE` | 40像素 | 30-60像素 | 最小人员检测尺寸 |
 
 **调优流程**：
 1. 使用默认值部署
@@ -206,7 +219,7 @@ service_count = SERVING状态转换次数
 **测量方法**：
 ```
 对于每个餐桌会话：
-  1. 从视觉系统获取 session_start_time
+  1. 从视觉系统获取 session_start_time（IDLE → BUSY）
   2. 从POS系统获取 first_order_time
   3. 计算 order_delay = first_order_time - session_start_time
 
@@ -220,42 +233,57 @@ service_count = SERVING状态转换次数
 - 如果 order_delay > 8分钟 → 菜单过于复杂
 - 如果 order_delay < 3分钟 → 菜单可能过于简单（品种少）
 
-### 场景2：服务质量监控
+### 场景2：用餐时长分析
 
 **测量方法**：
 ```
-service_responsiveness = first_serving_time - session_start_time
+dining_duration = session_end_time - session_start_time
 ```
 
 **洞察**：
-- 首次服务延迟长 → 人手不足或关注度差
-- SERVING转换频繁 → 良好的贴心服务
-- 零SERVING转换 → 顾客自助（火锅店正常）
+- 用餐时长短 → 快速翻台（高峰期有利）
+- 用餐时长长 → 可能顾客体验好，也可能上菜慢
+- 结合POS订单可分析各阶段时长
 
 ### 场景3：翻台率优化
 
 **测量方法**：
 ```
-turnover_time = session_end_time - session_start_time
 cleaning_time = CLEANING状态持续时间
+idle_time = IDLE状态持续时间
+utilization = BUSY时间 / 总时间
 ```
 
 **洞察**：
 - cleaning_time长 → 服务员慢或清理困难
-- session_duration短 → 快速翻台（高峰期有利）
+- idle_time长但客流多 → 可能接待流程有问题
+- utilization低 → 餐厅未充分利用
 
 ### 场景4：容量规划
 
 **测量方法**：
 ```
 对于每个时段（如：下午6-7点）：
-  occupied_tables = count(OCCUPIED或SERVING状态的餐桌)
+  occupied_tables = count(BUSY状态的餐桌)
   utilization = occupied_tables / total_tables
 ```
 
 **洞察**：
 - 高峰期利用率低 → 运营问题
 - 高利用率 + 长等待时间 → 需要更多餐桌
+
+### 场景5：服务频率分析
+
+**测量方法**：
+```
+service_count = BUSY → CLEANING → BUSY 的次数
+avg_service_interval = BUSY总时间 / service_count
+```
+
+**洞察**：
+- 服务频率低 → 可能服务员人手不足
+- 服务频率高 → 良好的贴心服务
+- 火锅/自助餐厅服务频率低属正常
 
 ---
 
@@ -287,12 +315,12 @@ cleaning_time = CLEANING状态持续时间
 
 ```json
 {
-  "timestamp": "2025-11-11T18:30:45Z",
+  "timestamp": "2025-11-12T18:30:45Z",
   "table_id": "T1",
-  "state": "SERVING",
+  "state": "BUSY",
   "customers_present": 4,
-  "waiters_present": 1,
-  "session_id": "T1_20251111_183000"
+  "waiters_present": 0,
+  "session_id": "T1_20251112_183000"
 }
 ```
 
@@ -300,20 +328,18 @@ cleaning_time = CLEANING状态持续时间
 
 ```json
 {
-  "session_id": "T1_20251111_183000",
+  "session_id": "T1_20251112_183000",
   "table_id": "T1",
-  "start_time": "2025-11-11T18:30:00Z",
-  "end_time": "2025-11-11T19:45:30Z",
+  "start_time": "2025-11-12T18:30:00Z",
+  "end_time": "2025-11-12T19:45:30Z",
   "duration_seconds": 4530,
-  "customer_count": 4,
-  "service_interactions": 8,
-  "first_service_delay": 120,
+  "customer_count_max": 4,
+  "cleaning_duration": 180,
   "order_delay": 180,  // 来自POS系统
   "state_timeline": [
     {"state": "IDLE", "duration": 0},
-    {"state": "OCCUPIED", "duration": 3600},
-    {"state": "SERVING", "duration": 450},
-    {"state": "CLEANING", "duration": 480}
+    {"state": "BUSY", "duration": 4350},
+    {"state": "CLEANING", "duration": 180}
   ]
 }
 ```
@@ -330,7 +356,7 @@ cleaning_time = CLEANING状态持续时间
 ### 软件
 - **检测**：YOLOv8m（人员检测）
 - **分类**：YOLO11n-cls（服务员/顾客）
-- **追踪**：ByteTrack（ID一致性）
+- **追踪**：基于中心点的ROI分配
 
 ### 预期准确率
 - **状态检测**：90-95%
@@ -341,13 +367,43 @@ cleaning_time = CLEANING状态持续时间
 
 ## 实施注意事项
 
-1. **ROI标注**：使用交互式多边形工具（参考脚本中包含）
-2. **模型选择**：YOLOv8m平衡了速度和准确率，适合餐厅密度
-3. **缓冲调优**：从保守开始（较长缓冲），根据误报率调紧
-4. **验证**：前两周对照人工日志验证视觉时间戳
+1. **ROI标注**：
+   - 使用交互式多边形工具（脚本内置）
+   - 先标注餐桌区域，后标注座位区域
+   - 座位区域可以有多个，按需配置
+
+2. **模型选择**：
+   - YOLOv8m平衡了速度和准确率
+   - 适合餐厅人员密度
+
+3. **缓冲调优**：
+   - 默认1秒防抖适合大多数场景
+   - 如有频繁误触发，可增加到2-3秒
+   - 根据实际情况调整
+
+4. **验证**：
+   - 前两周对照人工日志验证视觉时间戳
+   - 关注BUSY → CLEANING的转换准确性
+   - 确保服务员分类准确率 > 85%
 
 ---
 
-**文档版本**：1.0
-**最后更新**：2025-11-11
+## 版本变更
+
+### v2.0.0 (2025-11-12)
+- 简化为3状态系统（移除SERVING状态）
+- 移除服务区域（Service Area）概念
+- 状态重命名：OCCUPIED → BUSY
+- 优先检测服务员：只要有服务员在场即为CLEANING
+- 简化状态转换逻辑
+
+### v1.0.0 (2025-11-11)
+- 初始版本
+- 4状态系统
+- 服务区域支持
+
+---
+
+**文档版本**：2.0.0
+**最后更新**：2025-11-12
 **作者**：ASEOfSmartICE团队

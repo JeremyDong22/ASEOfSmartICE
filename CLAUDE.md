@@ -79,3 +79,4 @@ python3 test-model/[specific_test_script].py
 ## Notes
 
 Each major directory contains its own CLAUDE.md with detailed implementation specifics. This root document provides the high-level business context and folder organization.
+Do not write Markdown files on your own if I don't ask you to do that. 

@@ -1,42 +1,44 @@
 #!/usr/bin/env python3
 """
 Table State Detection System
-Version: 1.3.0
-Last Updated: 2025-11-11
+Version: 2.0.0
+Last Updated: 2025-11-12
 
 Purpose: Monitor individual restaurant tables and detect state transitions
-States: IDLE, OCCUPIED, SERVING, CLEANING
+States: IDLE, BUSY, CLEANING
 
 Reference: Based on ../../test-model/two-stage-detection-yolo11-cls/yolov8m_yolo11ncls_roi_video_analysis.py
 Modified to support multi-table monitoring instead of single ROI zone monitoring
 
 Key Changes from Reference:
 - Multi-table ROI support (instead of single ROI)
-- 4-state tracking per table (IDLE, OCCUPIED, SERVING, CLEANING)
+- 3-state tracking per table (IDLE, BUSY, CLEANING)
 - Table-specific statistics and state transitions
 - Enhanced ROI drawing system for multiple tables
-- Service area labeling for waiter tracking between tables
 - Sitting area labeling for customer seating zones
 - Enhanced visual feedback during ROI setup
 - TRUE POLYGON support (not forced to axis-aligned rectangles)
-- Sequential labeling workflow (Table → Sitting → Service per table)
+- Sequential labeling workflow (Table → Sitting per table)
+- Center point visualization for ROI assignment debugging
 
 State Definitions:
-- IDLE: No customers or staff at table (GREEN - empty/available)
-- OCCUPIED: Customers present, no staff (YELLOW - dining)
-- SERVING: Both customers and staff present (ORANGE - being served)
-- CLEANING: Only staff present, no customers (BLUE - cleaning/turnover)
+- IDLE: No one around the table (GREEN - empty/available)
+- BUSY: Only customers present (YELLOW - customers dining)
+- CLEANING: Only employees present (BLUE - staff cleaning/turnover)
 
 Visual Design (Result Video):
-- Tables change color based on state (GREEN/YELLOW/ORANGE/BLUE)
-- Sitting areas and service areas show as gray lines (not changing)
+- Tables change color based on state (GREEN/YELLOW/BLUE)
+- Sitting areas show as gray lines (not changing)
+- White circles mark person center points used for ROI assignment
+- State labels display in English (OpenCV compatible)
 
 Version History:
-- v1.3.0: Added sitting area labeling, sequential workflow (T1→S1→V1, T2→S2→V2...)
-         Changed IDLE table color to yellow for better visibility
-         Auto-switching between modes after completing each ROI
-- v1.2.0: Fixed polygon support - tables/service areas can now be any quadrilateral shape
-         (parallelograms, trapezoids, etc), not forced to rectangles
+- v2.0.0: Simplified to 3 states, removed service area tracking
+         State renamed: OCCUPIED → BUSY, removed SERVING state
+- v1.4.1: Fixed Chinese character display issue - now uses English state labels
+- v1.4.0: Added center point visualization for debugging ROI assignments
+- v1.3.0: Added sitting area labeling, sequential workflow
+- v1.2.0: Fixed polygon support - tables can now be any quadrilateral shape
 - v1.1.0: Added service area labeling, improved visual feedback
 - v1.0.0: Initial release
 
@@ -66,7 +68,7 @@ STAFF_CONF_THRESHOLD = 0.5
 MIN_PERSON_SIZE = 40
 
 # ROI configuration
-TABLE_CONFIG_FILE = "table_config.json"
+TABLE_CONFIG_FILE = str(SCRIPT_DIR / "table_config.json")
 
 # State transition parameters
 STATE_DEBOUNCE_SECONDS = 1.0  # State must be stable for 1s before confirming change
@@ -80,18 +82,15 @@ COLORS = {
 
     # Table state colors (in result video)
     'table_idle': (0, 255, 0),      # GREEN for IDLE (empty/available)
-    'table_occupied': (0, 255, 255),# YELLOW for OCCUPIED (customers eating)
-    'table_serving': (0, 165, 255), # ORANGE for SERVING (waiter serving)
-    'table_cleaning': (255, 0, 0),  # BLUE for CLEANING (waiter cleaning/turnover)
+    'table_busy': (0, 255, 255),    # YELLOW for BUSY (customers dining)
+    'table_cleaning': (255, 0, 0),  # BLUE for CLEANING (staff cleaning/turnover)
 
     # ROI colors in result video (gray - not changing)
     'sitting_area_result': (128, 128, 128),  # Gray for sitting areas in result
-    'service_area_result': (128, 128, 128),  # Gray for service areas in result
 
     # Drawing colors (during labeling)
     'drawing_table': (0, 255, 255),      # Yellow for table being drawn
     'drawing_sitting': (0, 200, 255),    # Light yellow for sitting area being drawn
-    'drawing_service': (255, 150, 0)     # Orange for service area being drawn
 }
 
 CLASS_NAMES = {0: 'customer', 1: 'waiter'}
@@ -100,8 +99,7 @@ CLASS_NAMES = {0: 'customer', 1: 'waiter'}
 class TableState(Enum):
     """Table state enumeration"""
     IDLE = "IDLE"           # No one at table
-    OCCUPIED = "OCCUPIED"   # Customers only
-    SERVING = "SERVING"     # Customers + Staff
+    BUSY = "BUSY"           # Customers only
     CLEANING = "CLEANING"   # Staff only
 
 
@@ -113,26 +111,6 @@ class SittingArea:
         self.polygon = polygon  # List of (x, y) tuples for polygon vertices
         self.table_id = table_id  # Which table this sitting area belongs to
         self.customers_present = 0
-
-    def get_polygon_from_bbox(self):
-        """Get polygon points for ROI checking"""
-        return self.polygon
-
-    def get_bbox(self):
-        """Get bounding box for display purposes"""
-        xs = [p[0] for p in self.polygon]
-        ys = [p[1] for p in self.polygon]
-        return [min(xs), min(ys), max(xs), max(ys)]
-
-
-class ServiceArea:
-    """Represents a service area (walkway between tables)"""
-
-    def __init__(self, area_id, polygon, table_id):
-        self.id = area_id
-        self.polygon = polygon  # List of (x, y) tuples for polygon vertices
-        self.table_id = table_id  # Which table this service area belongs to
-        self.waiters_present = 0
 
     def get_polygon_from_bbox(self):
         """Get polygon points for ROI checking"""
@@ -159,9 +137,8 @@ class Table:
         self.pending_state = None
         self.pending_state_start = None
 
-        # Associated ROIs (can have multiple sitting/service areas)
+        # Associated ROIs (can have multiple sitting areas)
         self.sitting_area_ids = []  # List of associated sitting area IDs
-        self.service_area_ids = []  # List of associated service area IDs
 
         # Statistics
         self.state_durations = {state: 0.0 for state in TableState}
@@ -187,10 +164,10 @@ class Table:
         if self.customers_present == 0 and self.waiters_present == 0:
             return TableState.IDLE
         elif self.customers_present > 0 and self.waiters_present == 0:
-            return TableState.OCCUPIED
-        elif self.customers_present > 0 and self.waiters_present > 0:
-            return TableState.SERVING
-        elif self.customers_present == 0 and self.waiters_present > 0:
+            return TableState.BUSY
+        elif self.waiters_present > 0:
+            # If there are any waiters, it's cleaning (regardless of customers)
+            # This prioritizes cleaning state when staff is present
             return TableState.CLEANING
         return TableState.IDLE
 
@@ -232,8 +209,7 @@ class Table:
         """Get color for current table state"""
         color_map = {
             TableState.IDLE: COLORS['table_idle'],
-            TableState.OCCUPIED: COLORS['table_occupied'],
-            TableState.SERVING: COLORS['table_serving'],
+            TableState.BUSY: COLORS['table_busy'],
             TableState.CLEANING: COLORS['table_cleaning']
         }
         return color_map.get(self.state, COLORS['table_idle'])
@@ -242,10 +218,9 @@ class Table:
 # Global variables for ROI drawing
 tables = []
 sitting_areas = []  # Track sitting areas (chairs around tables)
-service_areas = []  # Track service areas (walkways between tables)
 current_table_points = []
 drawing_mode = True
-drawing_type = 'table'  # 'table', 'sitting', or 'service'
+drawing_type = 'table'  # 'table' or 'sitting'
 mouse_position = (0, 0)  # Track mouse for visual feedback
 current_table_index = 0  # Track which table we're working on
 
@@ -331,8 +306,7 @@ def mouse_callback(event, x, y, flags, param):
         current_table_points.append((x, y))
         roi_type_map = {
             'table': 'TABLE',
-            'sitting': 'SITTING AREA',
-            'service': 'SERVICE AREA'
+            'sitting': 'SITTING AREA'
         }
         roi_type = roi_type_map.get(drawing_type, 'ROI')
         print(f"   {roi_type} Point {len(current_table_points)}: ({x}, {y})")
@@ -364,50 +338,12 @@ def draw_sitting_area_roi(frame, sitting_area, thickness=1, fill_alpha=0.05, is_
         cv2.fillPoly(overlay, [pts], color)
         cv2.addWeighted(overlay, fill_alpha, frame_copy, 1 - fill_alpha, 0, frame_copy)
 
-    # Draw sitting area ID at center (only during labeling or if configured)
+    # Draw sitting area ID at center (only during labeling)
     if is_labeling:
         bbox = sitting_area.get_bbox()
         label_x = int((bbox[0] + bbox[2]) / 2 - 20)
         label_y = int((bbox[1] + bbox[3]) / 2)
         label = f"S{sitting_area.id[1:]}"  # Show "S1" instead of "SA1"
-        cv2.putText(frame_copy, label, (label_x, label_y),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-
-    return frame_copy
-
-
-def draw_service_area_roi(frame, service_area, thickness=1, fill_alpha=0.05, is_labeling=False):
-    """Draw service area ROI on frame (supports polygons)"""
-    frame_copy = frame.copy()
-
-    # Use bright color during labeling, gray in result video
-    if is_labeling:
-        color = COLORS['drawing_service']
-        thickness = 2
-        fill_alpha = 0.15
-    else:
-        color = COLORS['service_area_result']  # Gray in result
-
-    # Get polygon points
-    polygon_points = service_area.polygon
-    pts = np.array(polygon_points, np.int32)
-    pts = pts.reshape((-1, 1, 2))
-
-    # Draw polygon outline
-    cv2.polylines(frame_copy, [pts], isClosed=True, color=color, thickness=thickness)
-
-    # Fill with very light semi-transparent overlay (subtle)
-    if fill_alpha > 0:
-        overlay = frame_copy.copy()
-        cv2.fillPoly(overlay, [pts], color)
-        cv2.addWeighted(overlay, fill_alpha, frame_copy, 1 - fill_alpha, 0, frame_copy)
-
-    # Draw service area ID at center (only during labeling or if configured)
-    if is_labeling:
-        bbox = service_area.get_bbox()
-        label_x = int((bbox[0] + bbox[2]) / 2 - 20)
-        label_y = int((bbox[1] + bbox[3]) / 2)
-        label = f"V{service_area.id[2:]}"  # Show "V1" instead of "SV1"
         cv2.putText(frame_copy, label, (label_x, label_y),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
@@ -446,14 +382,8 @@ def draw_table_roi(frame, table, thickness=3, fill_alpha=0.25):
                (center_x - id_size[0]//2, center_y - 10),
                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
 
-    # State name on bottom line (in Chinese or English)
-    state_map = {
-        'IDLE': '空闲',
-        'OCCUPIED': '用餐',
-        'SERVING': '服务',
-        'CLEANING': '清台'
-    }
-    label_state = state_map.get(table.state.value, table.state.value)
+    # State name on bottom line (English)
+    label_state = table.state.value  # Use English state names directly
     state_size = cv2.getTextSize(label_state, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
     cv2.putText(frame_copy, label_state,
                (center_x - state_size[0]//2, center_y + 20),
@@ -462,14 +392,11 @@ def draw_table_roi(frame, table, thickness=3, fill_alpha=0.25):
     return frame_copy
 
 
-def draw_all_rois(frame, tables, sitting_areas, service_areas, is_labeling=False):
-    """Draw all ROIs (service areas, sitting areas, and tables) on frame"""
+def draw_all_rois(frame, tables, sitting_areas, is_labeling=False):
+    """Draw all ROIs (sitting areas and tables) on frame"""
     result = frame.copy()
 
-    # Draw in layers: service areas (bottom) -> sitting areas (middle) -> tables (top)
-    for service_area in service_areas:
-        result = draw_service_area_roi(result, service_area, is_labeling=is_labeling)
-
+    # Draw in layers: sitting areas (bottom) -> tables (top)
     for sitting_area in sitting_areas:
         result = draw_sitting_area_roi(result, sitting_area, is_labeling=is_labeling)
 
@@ -479,10 +406,10 @@ def draw_all_rois(frame, tables, sitting_areas, service_areas, is_labeling=False
     return result
 
 
-def draw_enhanced_instruction_panel(frame, drawing_type, current_table_idx, tables_count, sitting_count, service_count, points_count, mouse_pos, current_sitting_count, current_service_count):
+def draw_enhanced_instruction_panel(frame, drawing_type, current_table_idx, tables_count, sitting_count, points_count, mouse_pos, current_sitting_count):
     """Draw enhanced instruction panel with visual feedback"""
     overlay = frame.copy()
-    panel_height = 240
+    panel_height = 210
     panel_width = 580
 
     # Semi-transparent background
@@ -495,13 +422,11 @@ def draw_enhanced_instruction_panel(frame, drawing_type, current_table_idx, tabl
     # Current table and mode indicator
     mode_map = {
         'table': 'TABLE',
-        'sitting': 'SITTING AREAS',
-        'service': 'SERVICE AREAS'
+        'sitting': 'SITTING AREAS'
     }
     color_map = {
         'table': COLORS['drawing_table'],
-        'sitting': COLORS['drawing_sitting'],
-        'service': COLORS['drawing_service']
+        'sitting': COLORS['drawing_sitting']
     }
 
     mode_text = f"TABLE {current_table_idx + 1} - {mode_map[drawing_type]}"
@@ -512,16 +437,14 @@ def draw_enhanced_instruction_panel(frame, drawing_type, current_table_idx, tabl
     y_offset += 30
     workflow_step = ""
     if drawing_type == 'table':
-        workflow_step = f"Step 1/3: Label table area"
+        workflow_step = f"Step 1/2: Label table area"
     elif drawing_type == 'sitting':
-        workflow_step = f"Step 2/3: Sitting areas for T{current_table_idx + 1} (drawn: {current_sitting_count})"
-    elif drawing_type == 'service':
-        workflow_step = f"Step 3/3: Service areas for T{current_table_idx + 1} (drawn: {current_service_count})"
+        workflow_step = f"Step 2/2: Sitting areas for T{current_table_idx + 1} (drawn: {current_sitting_count})"
     cv2.putText(frame, workflow_step, (20, y_offset), font, 0.5, (150, 255, 150), 1)
 
     # Counters
     y_offset += 25
-    cv2.putText(frame, f"Total: T:{tables_count} S:{sitting_count} V:{service_count} | Points: {points_count}",
+    cv2.putText(frame, f"Total: T:{tables_count} S:{sitting_count} | Points: {points_count}",
                (20, y_offset), font, 0.5, (255, 255, 255), 1)
 
     # Mouse coordinates
@@ -532,14 +455,12 @@ def draw_enhanced_instruction_panel(frame, drawing_type, current_table_idx, tabl
     # Instructions
     y_offset += 28
     instructions = [
-        "WORKFLOW (can draw multiple Sitting/Service per table):",
+        "WORKFLOW (can draw multiple Sitting areas per table):",
         "  1. Click 4 corners for Table, press 'N'",
         "  2. Click 4 corners for Sitting Area, press 'N' (repeat for more)",
-        "  3. Press 'D' when done with Sitting -> switch to Service",
-        "  4. Click 4 corners for Service Area, press 'N' (repeat for more)",
-        "  5. Press 'D' when done with Service -> next table",
+        "  3. Press 'D' when done with Sitting -> next table",
         "",
-        "CONTROLS: 'N' Add ROI | 'D' Done (next mode) | 'Z' Undo | 'S' Save | 'Q' Quit"
+        "CONTROLS: 'N' Add ROI | 'D' Done (next table) | 'Z' Undo | 'S' Save | 'Q' Quit"
     ]
 
     for instruction in instructions:
@@ -550,8 +471,8 @@ def draw_enhanced_instruction_panel(frame, drawing_type, current_table_idx, tabl
 
 
 def setup_tables_from_video(video_path):
-    """Setup multiple tables with associated sitting and service areas"""
-    global tables, sitting_areas, service_areas, current_table_points, drawing_mode, drawing_type, mouse_position, current_table_index
+    """Setup multiple tables with associated sitting areas"""
+    global tables, sitting_areas, current_table_points, drawing_mode, drawing_type, mouse_position, current_table_index
 
     print("\n" + "="*70)
     print("ROI Setup Mode - Sequential Table Labeling")
@@ -561,29 +482,26 @@ def setup_tables_from_video(video_path):
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         print(f"Could not open video: {video_path}")
-        return None, None, None
+        return None, None
 
     ret, frame = cap.read()
     cap.release()
 
     if not ret:
         print(f"Could not read first frame from video")
-        return None, None, None
+        return None, None
 
     print(f"Using first frame from: {os.path.basename(video_path)}")
     print(f"Frame size: {frame.shape[1]}x{frame.shape[0]}")
     print("\n" + "="*70)
-    print("WORKFLOW (Multiple Sitting/Service Areas per Table):")
+    print("WORKFLOW (Multiple Sitting Areas per Table):")
     print("="*70)
     print("   1. Label TABLE area (yellow), press 'N'")
     print("   2. Label SITTING AREAS (light yellow), press 'N' for each")
     print("      (Can draw multiple sitting areas for one table)")
-    print("   3. Press 'D' when done with sitting areas")
-    print("   4. Label SERVICE AREAS (orange), press 'N' for each")
-    print("      (Can draw multiple service areas for one table)")
-    print("   5. Press 'D' to complete this table and start next")
+    print("   3. Press 'D' to complete this table and start next")
     print("\n   'N' - Complete current ROI and add it")
-    print("   'D' - Done with current mode, switch to next")
+    print("   'D' - Done with current table, start next")
     print("   'S' - Save all and finish")
     print("   'Z' - Undo last point")
     print("   'Q' - Quit without saving")
@@ -591,16 +509,14 @@ def setup_tables_from_video(video_path):
 
     tables = []
     sitting_areas = []
-    service_areas = []
     current_table_points = []
     drawing_mode = True
     drawing_type = 'table'  # Start with table
     mouse_position = (0, 0)
     current_table_index = 0
 
-    # Track how many sitting/service areas for current table
+    # Track how many sitting areas for current table
     current_table_sitting_count = 0
-    current_table_service_count = 0
 
     cv2.namedWindow('ROI Setup', cv2.WINDOW_NORMAL)
     cv2.resizeWindow('ROI Setup', 1280, 720)
@@ -610,13 +526,12 @@ def setup_tables_from_video(video_path):
         display_frame = frame.copy()
 
         # Draw existing ROIs (with bright colors for labeling)
-        display_frame = draw_all_rois(display_frame, tables, sitting_areas, service_areas, is_labeling=True)
+        display_frame = draw_all_rois(display_frame, tables, sitting_areas, is_labeling=True)
 
         # Get current drawing color
         color_map = {
             'table': COLORS['drawing_table'],
-            'sitting': COLORS['drawing_sitting'],
-            'service': COLORS['drawing_service']
+            'sitting': COLORS['drawing_sitting']
         }
         draw_color = color_map[drawing_type]
 
@@ -651,18 +566,14 @@ def setup_tables_from_video(video_path):
         # Draw enhanced instruction panel
         display_frame = draw_enhanced_instruction_panel(
             display_frame, drawing_type, current_table_index, len(tables),
-            len(sitting_areas), len(service_areas), len(current_table_points), mouse_position,
-            current_table_sitting_count, current_table_service_count
+            len(sitting_areas), len(current_table_points), mouse_position,
+            current_table_sitting_count
         )
 
         cv2.imshow('ROI Setup', display_frame)
-        key = cv2.waitKey(10) & 0xFF  # Increased wait time for better key detection
+        key = cv2.waitKey(10) & 0xFF
 
-        # Debug: show which key was pressed (remove after testing)
-        if key != 255:  # 255 means no key pressed
-            print(f"[DEBUG] Key pressed: {key} ('{chr(key) if 32 <= key <= 126 else 'special'}')")
-
-        # 'n' or 'N' to add current ROI (stays in current mode for multiple ROIs)
+        # 'n' or 'N' to add current ROI
         if key == ord('n') or key == ord('N'):
             if len(current_table_points) == 4:
                 # Create ROI from 4 points as a polygon
@@ -699,43 +610,14 @@ def setup_tables_from_video(video_path):
                     # Stay in sitting mode, clear points for next one
                     current_table_points = []
 
-                elif drawing_type == 'service':
-                    # Create service area
-                    current_table_service_count += 1
-                    service_id = f"SV{len(service_areas) + 1}"
-                    table_id = f"T{current_table_index + 1}"
-                    service_area = ServiceArea(service_id, polygon, table_id)
-                    service_areas.append(service_area)
-
-                    # Link to table
-                    tables[current_table_index].service_area_ids.append(service_id)
-
-                    print(f"\n✓ Service Area {service_id} created (linked to {table_id})")
-                    print(f"   >> You can draw more service areas or press 'D' to complete table")
-
-                    # Stay in service mode, clear points for next one
-                    current_table_points = []
-
             else:
                 print(f"\n✗ Need exactly 4 points (currently {len(current_table_points)})")
 
-        # 'd' or 'D' to finish current mode and switch to next
+        # 'd' or 'D' to finish current table and switch to next
         elif key == ord('d') or key == ord('D'):
             if drawing_type == 'sitting':
                 print(f"\n{'='*70}")
                 print(f"✓ Finished {current_table_sitting_count} sitting area(s) for T{current_table_index + 1}")
-                print(f"{'='*70}")
-                print(f"   >> Switching to SERVICE AREAS for T{current_table_index + 1}")
-                print(f"   (You can draw multiple service areas, press 'D' when done)")
-
-                # Switch to service area mode
-                drawing_type = 'service'
-                current_table_service_count = 0
-                current_table_points = []
-
-            elif drawing_type == 'service':
-                print(f"\n{'='*70}")
-                print(f"✓ Finished {current_table_service_count} service area(s) for T{current_table_index + 1}")
                 print(f"✓ TABLE {current_table_index + 1} COMPLETE!")
                 print(f"{'='*70}")
 
@@ -743,7 +625,6 @@ def setup_tables_from_video(video_path):
                 current_table_index += 1
                 drawing_type = 'table'
                 current_table_sitting_count = 0
-                current_table_service_count = 0
                 current_table_points = []
 
                 print(f"\n>> Starting TABLE {current_table_index + 1}...")
@@ -769,8 +650,7 @@ def setup_tables_from_video(video_path):
                             'id': t.id,
                             'polygon': t.polygon,
                             'capacity': t.capacity,
-                            'sitting_area_ids': t.sitting_area_ids,  # List of IDs
-                            'service_area_ids': t.service_area_ids   # List of IDs
+                            'sitting_area_ids': t.sitting_area_ids
                         } for t in tables
                     ],
                     'sitting_areas': [
@@ -779,13 +659,6 @@ def setup_tables_from_video(video_path):
                             'polygon': sa.polygon,
                             'table_id': sa.table_id
                         } for sa in sitting_areas
-                    ],
-                    'service_areas': [
-                        {
-                            'id': sv.id,
-                            'polygon': sv.polygon,
-                            'table_id': sv.table_id
-                        } for sv in service_areas
                     ],
                     'frame_size': [frame.shape[1], frame.shape[0]],
                     'video': video_path
@@ -799,11 +672,10 @@ def setup_tables_from_video(video_path):
                 print(f"{'='*70}")
                 print(f"  Complete Tables: {len(tables)}")
                 print(f"  Sitting Areas: {len(sitting_areas)}")
-                print(f"  Service Areas: {len(service_areas)}")
                 print(f"{'='*70}\n")
 
                 cv2.destroyAllWindows()
-                return tables, sitting_areas, service_areas
+                return tables, sitting_areas
             else:
                 print("\n✗ No tables defined yet")
 
@@ -819,10 +691,10 @@ def setup_tables_from_video(video_path):
         elif key == ord('q') or key == ord('Q'):
             print("\nROI setup cancelled")
             cv2.destroyAllWindows()
-            return None, None, None
+            return None, None
 
     cv2.destroyAllWindows()
-    return tables, sitting_areas, service_areas
+    return tables, sitting_areas
 
 
 def point_in_polygon(point, polygon):
@@ -944,15 +816,13 @@ def classify_persons(staff_classifier, frame, person_detections):
     return classified_detections
 
 
-def assign_detections_to_rois(tables, sitting_areas, service_areas, detections):
-    """Assign each detection to appropriate table, sitting area, or service area"""
+def assign_detections_to_rois(tables, sitting_areas, detections):
+    """Assign each detection to appropriate table or sitting area"""
     # Reset counts
     for table in tables:
         table.update_counts(0, 0)
     for sitting_area in sitting_areas:
         sitting_area.customers_present = 0
-    for service_area in service_areas:
-        service_area.waiters_present = 0
 
     for detection in detections:
         center = detection['center']
@@ -975,7 +845,7 @@ def assign_detections_to_rois(tables, sitting_areas, service_areas, detections):
             for sitting_area in sitting_areas:
                 polygon = sitting_area.get_polygon_from_bbox()
                 if point_in_polygon(center, polygon):
-                    # Only count customers in sitting areas (seated people)
+                    # Count both customers and waiters in sitting areas
                     if detection['class'] == 'customer':
                         sitting_area.customers_present += 1
                         # Also count for associated table
@@ -983,33 +853,30 @@ def assign_detections_to_rois(tables, sitting_areas, service_areas, detections):
                             if table.id == sitting_area.table_id:
                                 table.customers_present += 1
                                 break
+                    elif detection['class'] == 'waiter':
+                        # Count waiters in sitting areas for associated table
+                        for table in tables:
+                            if table.id == sitting_area.table_id:
+                                table.waiters_present += 1
+                                break
                     assigned = True
                     break
 
-        # Priority 3: Check service areas (walkways for waiters)
-        if not assigned:
-            for service_area in service_areas:
-                polygon = service_area.get_polygon_from_bbox()
-                if point_in_polygon(center, polygon):
-                    # Only count waiters in service areas
-                    if detection['class'] == 'waiter':
-                        service_area.waiters_present += 1
-                    break
 
-
-def draw_detections_and_tables(frame, detections, tables, sitting_areas, service_areas, tracker):
-    """Draw detections, tables, sitting areas, and service areas"""
+def draw_detections_and_tables(frame, detections, tables, sitting_areas, tracker):
+    """Draw detections, tables, and sitting areas"""
     annotated_frame = frame.copy()
 
-    # Draw all ROIs (service areas + sitting areas + tables)
-    # is_labeling=False means gray ROIs for sitting/service areas in result video
-    annotated_frame = draw_all_rois(annotated_frame, tables, sitting_areas, service_areas, is_labeling=False)
+    # Draw all ROIs (sitting areas + tables)
+    # is_labeling=False means gray ROIs for sitting areas in result video
+    annotated_frame = draw_all_rois(annotated_frame, tables, sitting_areas, is_labeling=False)
 
     # Draw detections
     for detection in detections:
         x1, y1, x2, y2 = detection['bbox']
         class_name = detection['class']
         confidence = detection['confidence']
+        center = detection['center']
 
         color = COLORS.get(class_name, COLORS['unknown'])
         cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, 2)
@@ -1028,6 +895,11 @@ def draw_detections_and_tables(frame, detections, tables, sitting_areas, service
         cv2.putText(annotated_frame, label,
                    (x1 + 3, y1 - 4),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+
+        # Draw center point used for ROI assignment (bright white circle with black outline)
+        cv2.circle(annotated_frame, center, 8, (0, 0, 0), -1)  # Black fill
+        cv2.circle(annotated_frame, center, 6, (255, 255, 255), -1)  # White center
+        cv2.circle(annotated_frame, center, 6, color, 2)  # Colored outline matching person class
 
     # Draw stats overlay
     stats_y = 30
@@ -1061,7 +933,7 @@ def draw_detections_and_tables(frame, detections, tables, sitting_areas, service
 
     # ROI counts
     stats_y += line_height
-    cv2.putText(annotated_frame, f"T:{len(tables)} S:{len(sitting_areas)} V:{len(service_areas)}",
+    cv2.putText(annotated_frame, f"T:{len(tables)} S:{len(sitting_areas)}",
                (stats_x, stats_y), font, font_scale, (255, 255, 255), font_thickness)
 
     # Individual table info
@@ -1075,8 +947,8 @@ def draw_detections_and_tables(frame, detections, tables, sitting_areas, service
     return annotated_frame
 
 
-def process_video(video_path, person_detector, staff_classifier, tables, sitting_areas, service_areas, output_dir=None, duration_limit=None):
-    """Process video with multi-table state detection, sitting areas, and service area tracking"""
+def process_video(video_path, person_detector, staff_classifier, tables, sitting_areas, output_dir=None, duration_limit=None):
+    """Process video with multi-table state detection and sitting area tracking"""
     # Default output to script's own results directory
     if output_dir is None:
         output_dir = str(Path(__file__).parent / "results")
@@ -1085,7 +957,7 @@ def process_video(video_path, person_detector, staff_classifier, tables, sitting
     print(f"Processing Video with Table State Detection")
     print(f"{'='*70}")
     print(f"Video: {os.path.basename(video_path)}")
-    print(f"Tables: {len(tables)} | Sitting Areas: {len(sitting_areas)} | Service Areas: {len(service_areas)}\n")
+    print(f"Tables: {len(tables)} | Sitting Areas: {len(sitting_areas)}\n")
 
     # Open video
     cap = cv2.VideoCapture(video_path)
@@ -1137,13 +1009,12 @@ def process_video(video_path, person_detector, staff_classifier, tables, sitting
     frame_idx = 0
 
     print("Processing frames...")
-    print(f"Monitoring {len(tables)} tables, {len(sitting_areas)} sitting areas, {len(service_areas)} service areas")
+    print(f"Monitoring {len(tables)} tables, {len(sitting_areas)} sitting areas")
     print(f"State debounce: {STATE_DEBOUNCE_SECONDS}s")
     print("\nTable State Colors (in output video):")
-    print("  GREEN   - IDLE (空闲): Empty table, no customers or staff")
-    print("  YELLOW  - OCCUPIED (用餐): Customers present, no staff")
-    print("  ORANGE  - SERVING (服务): Both customers and staff present")
-    print("  BLUE    - CLEANING (清台): Staff only, no customers")
+    print("  GREEN   - IDLE: Empty table, no one around")
+    print("  YELLOW  - BUSY: Only customers present (dining)")
+    print("  BLUE    - CLEANING: Only staff present (cleaning/turnover)")
     print()
 
     try:
@@ -1165,8 +1036,8 @@ def process_video(video_path, person_detector, staff_classifier, tables, sitting
             classified_detections = classify_persons(staff_classifier, frame, person_detections)
             stage2_time = time.time() - stage2_start
 
-            # Assign detections to tables, sitting areas, and service areas
-            assign_detections_to_rois(tables, sitting_areas, service_areas, classified_detections)
+            # Assign detections to tables and sitting areas
+            assign_detections_to_rois(tables, sitting_areas, classified_detections)
 
             # Update table states
             for table in tables:
@@ -1180,8 +1051,8 @@ def process_video(video_path, person_detector, staff_classifier, tables, sitting
             # Update tracker
             tracker.add_frame(frame_time, stage1_time, stage2_time)
 
-            # Draw detections, tables, sitting areas, and service areas
-            annotated_frame = draw_detections_and_tables(frame, classified_detections, tables, sitting_areas, service_areas, tracker)
+            # Draw detections, tables, and sitting areas
+            annotated_frame = draw_detections_and_tables(frame, classified_detections, tables, sitting_areas, tracker)
 
             # Write frame
             out.write(annotated_frame)
@@ -1232,18 +1103,17 @@ def process_video(video_path, person_detector, staff_classifier, tables, sitting
 def main():
     """Main function with argument parsing"""
     parser = argparse.ArgumentParser(
-        description="Table State Detection System - Multi-table monitoring with state tracking and service area analysis",
+        description="Table State Detection System - Multi-table monitoring with state tracking",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Process video with ROI setup (tables + service areas)
+  # Process video with ROI setup (tables + sitting areas)
   python3 table-state-detection.py --video test_video.mp4 --duration 60
 
   # Process full video
   python3 table-state-detection.py --video restaurant_cam.mp4
 
-Note: Service areas (walkways between tables) help track waiter positions
-      when they're between tables, improving serving detection accuracy.
+Note: System tracks 3 states - IDLE (no one), BUSY (customers only), CLEANING (staff only)
         """
     )
     parser.add_argument("--video", required=True, help="Path to input video")
@@ -1262,11 +1132,11 @@ Note: Service areas (walkways between tables) help track waiter positions
     PERSON_CONF_THRESHOLD = args.person_conf
     STAFF_CONF_THRESHOLD = args.staff_conf
 
-    # Step 1: Setup tables, sitting areas, and service areas using first frame of video
+    # Step 1: Setup tables and sitting areas using first frame of video
     print("\n" + "="*70)
-    print("Step 1: ROI Setup (Tables + Sitting Areas + Service Areas)")
+    print("Step 1: ROI Setup (Tables + Sitting Areas)")
     print("="*70)
-    tables, sitting_areas, service_areas = setup_tables_from_video(args.video)
+    tables, sitting_areas = setup_tables_from_video(args.video)
 
     if tables is None:
         print("\nROI setup cancelled. Exiting.")
@@ -1276,11 +1146,9 @@ Note: Service areas (walkways between tables) help track waiter positions
         print("\nNo tables defined. At least one table is required. Exiting.")
         return 1
 
-    # Sitting areas and service areas are optional but recommended
+    # Sitting areas are optional but recommended
     if sitting_areas is None:
         sitting_areas = []
-    if service_areas is None:
-        service_areas = []
 
     # Step 2: Load models
     print("\n" + "="*70)
@@ -1294,7 +1162,7 @@ Note: Service areas (walkways between tables) help track waiter positions
     print("\n" + "="*70)
     print("Step 3: Processing Video")
     print("="*70)
-    success = process_video(args.video, person_detector, staff_classifier, tables, sitting_areas, service_areas,
+    success = process_video(args.video, person_detector, staff_classifier, tables, sitting_areas,
                            args.output, args.duration)
 
     return 0 if success else 1
