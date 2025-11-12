@@ -718,6 +718,50 @@ def point_in_polygon(point, polygon):
     return inside
 
 
+def load_config_from_file(config_file):
+    """Load table configuration from existing JSON file"""
+    if not os.path.exists(config_file):
+        return None, None
+
+    print(f"\n{'='*70}")
+    print(f"Loading existing configuration from: {os.path.basename(config_file)}")
+    print(f"{'='*70}")
+
+    try:
+        with open(config_file, 'r') as f:
+            config_data = json.load(f)
+
+        # Reconstruct tables
+        tables = []
+        for table_data in config_data.get('tables', []):
+            table = Table(
+                table_data['id'],
+                table_data['polygon'],
+                table_data.get('capacity', 4)
+            )
+            table.sitting_area_ids = table_data.get('sitting_area_ids', [])
+            tables.append(table)
+
+        # Reconstruct sitting areas
+        sitting_areas = []
+        for sa_data in config_data.get('sitting_areas', []):
+            sitting_area = SittingArea(
+                sa_data['id'],
+                sa_data['polygon'],
+                sa_data['table_id']
+            )
+            sitting_areas.append(sitting_area)
+
+        print(f"✓ Loaded {len(tables)} table(s) and {len(sitting_areas)} sitting area(s)")
+        print(f"{'='*70}\n")
+
+        return tables, sitting_areas
+
+    except Exception as e:
+        print(f"✗ Error loading config file: {e}")
+        return None, None
+
+
 def load_models():
     """Load both detection models"""
     print("Loading detection models...")
@@ -1132,19 +1176,26 @@ Note: System tracks 3 states - IDLE (no one), BUSY (customers only), CLEANING (s
     PERSON_CONF_THRESHOLD = args.person_conf
     STAFF_CONF_THRESHOLD = args.staff_conf
 
-    # Step 1: Setup tables and sitting areas using first frame of video
+    # Step 1: Setup tables and sitting areas
     print("\n" + "="*70)
     print("Step 1: ROI Setup (Tables + Sitting Areas)")
     print("="*70)
-    tables, sitting_areas = setup_tables_from_video(args.video)
 
-    if tables is None:
-        print("\nROI setup cancelled. Exiting.")
-        return 1
+    # Try to load existing config first
+    tables, sitting_areas = load_config_from_file(TABLE_CONFIG_FILE)
 
-    if len(tables) == 0:
-        print("\nNo tables defined. At least one table is required. Exiting.")
-        return 1
+    # If no existing config, create new one using GUI
+    if tables is None or len(tables) == 0:
+        print("No existing configuration found. Starting interactive ROI setup...")
+        tables, sitting_areas = setup_tables_from_video(args.video)
+
+        if tables is None:
+            print("\nROI setup cancelled. Exiting.")
+            return 1
+
+        if len(tables) == 0:
+            print("\nNo tables defined. At least one table is required. Exiting.")
+            return 1
 
     # Sitting areas are optional but recommended
     if sitting_areas is None:
