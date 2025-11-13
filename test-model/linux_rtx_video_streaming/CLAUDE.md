@@ -1,14 +1,15 @@
 # Linux RTX Video Streaming
 
-**Last Updated:** 2025-11-10
+**Last Updated:** 2025-11-13
 
 ## Business Purpose
 
-Video capture system for Linux RTX 3060 machines in restaurants. Two capture modes available:
+Video capture system for Linux RTX 3060 machines in restaurants. Three main systems:
 1. **5-minute quick captures** (legacy, for testing)
 2. **1-hour continuous captures** (production, for peak hours 7-8 PM)
+3. **Performance testing** (RTX 3060 GPU analysis for table-state-detection) ⭐ NEW
 
-Both systems support camera_22 and camera_35 (1920x1080 resolution) with Supabase cloud storage integration.
+All systems support camera_22 and camera_35 (1920x1080 resolution) with Supabase cloud storage integration.
 
 ---
 
@@ -26,15 +27,21 @@ linux_rtx_video_streaming/
 │   ├── videos/                            # Old video storage
 │   └── upload_logs/                       # Old upload logs
 │
-└── scheduled_1hour_capture_7pm_8pm/       # NEW: 1-hour scheduled system ⭐
-    ├── capture_1hour_continuous.py        # 1-hour continuous capture
-    ├── background_upload_worker.py        # Upload with 5-8 hour timeout
-    ├── run_scheduled_1hour_capture.sh     # Main runner script
-    ├── setup_cron_7pm.sh                  # Cron setup helper
-    ├── README.md                          # Detailed documentation
-    ├── videos/                            # Video storage (~3-5 GB per camera)
-    ├── logs/                              # Execution logs
-    └── upload_queue.json                  # Upload queue tracker
+├── scheduled_1hour_capture_7pm_8pm/       # 1-hour scheduled system
+│   ├── capture_1hour_continuous.py        # 1-hour continuous capture
+│   ├── background_upload_worker.py        # Upload with 5-8 hour timeout
+│   ├── run_scheduled_1hour_capture.sh     # Main runner script
+│   ├── setup_cron_7pm.sh                  # Cron setup helper
+│   ├── README.md                          # Detailed documentation
+│   ├── videos/                            # Video storage (~3-5 GB per camera)
+│   ├── logs/                              # Execution logs
+│   └── upload_queue.json                  # Upload queue tracker
+│
+└── performance_test_20251113/             # ⭐ NEW: Performance test results
+    ├── README.md                          # Complete test report
+    ├── performance_analysis.py            # Full performance analysis
+    ├── performance_comparison_5fps.py     # 20fps vs 5fps comparison
+    └── timing_log.txt                     # Test execution timing
 ```
 
 ---
@@ -226,6 +233,32 @@ python3 test_supabase_upload.py
 python3 upload_existing_videos.py
 ```
 
+### Performance Testing (2025-11-13) ⭐ NEW
+```bash
+cd performance_test_20251113
+
+# Run full performance analysis
+python3 performance_analysis.py
+
+# Run 20fps vs 5fps comparison
+python3 performance_comparison_5fps.py
+
+# View complete test report
+cat README.md
+
+# View test timing log
+cat timing_log.txt
+```
+
+**Quick Results Summary:**
+- **Test Video**: 5 minutes, 1920x1080, 395 MB
+- **20fps Processing**: 8 minutes (0.62x real-time)
+- **5fps Processing**: 1.5 minutes (3.24x real-time) ⚡
+- **Speedup**: 5.2x faster with 5fps
+- **Production**: Dual-threaded 5fps can process 100 hours in 17.1 hours ✅
+
+See `performance_test_20251113/README.md` for detailed analysis.
+
 ---
 
 ## Troubleshooting
@@ -268,7 +301,36 @@ find scheduled_1hour_capture_7pm_8pm/videos/ -name "*.mp4" -mtime +7 -delete
 - **Test Model**: `../CLAUDE.md` (test-model folder)
 - **1-Hour System**: `scheduled_1hour_capture_7pm_8pm/README.md` ⭐
 - **5-Min System**: `previous_5min_captures/SUPABASE_STATUS.md`
+- **Performance Test**: `performance_test_20251113/README.md` ⭐ NEW
 
 ---
 
-*This folder contains two video capture systems: legacy 5-minute captures for testing, and new 1-hour continuous captures for production peak-hour monitoring.*
+## Performance Test Results (2025-11-13) ⭐
+
+### Test Overview
+Comprehensive RTX 3060 GPU performance analysis for table-state-detection system, comparing full-frame (20fps) vs frame-skipping (5fps) processing.
+
+### Key Findings
+✅ **5fps processing is production-ready**
+- Processing speed: **3.24x faster than real-time**
+- 5-minute video processed in **1.5 minutes**
+- Bottleneck: Staff classification (76.5% of processing time)
+
+### Production Scenario (10 cameras × 10 hours/day)
+| Configuration | Processing Time | Status |
+|--------------|----------------|--------|
+| Single-thread 20fps | 160 hours | ❌ Not feasible |
+| Single-thread 5fps | 31 hours | ❌ Exceeds 24h |
+| **Dual-thread 5fps** | **17.1 hours** | ✅ **Recommended** |
+| Five-thread 5fps | 8.8 hours | ✅ Optimal |
+
+### Optimization Potential
+- YOLOv8n (lighter model): **2-3x** additional speedup
+- TensorRT optimization: **1.5-2x** additional speedup
+- Combined: **10-15x total** speedup possible
+
+**See full report:** `performance_test_20251113/README.md`
+
+---
+
+*This folder contains three systems: legacy 5-minute captures for testing, 1-hour continuous captures for production peak-hour monitoring, and performance test results for table-state-detection optimization.*
