@@ -255,71 +255,70 @@ def draw_roi_on_frame(frame, points, color=(255, 255, 0), thickness=2, fill_alph
     return frame_copy
 
 
-def setup_polygon_interactive(frame, window_name, instruction_text, color=(255, 255, 0)):
-    """Generic polygon drawing interface"""
-    global drawing_points, drawing_complete
+def draw_instruction_panel(frame, stage, points_count, service_areas_count):
+    """Draw instruction panel on frame"""
+    overlay = frame.copy()
+    panel_height = 210
+    panel_width = 580
 
-    drawing_points = []
-    drawing_complete = False
+    # Semi-transparent background
+    cv2.rectangle(overlay, (10, 10), (panel_width, panel_height), (0, 0, 0), -1)
+    cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
 
-    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(window_name, 1280, 720)
-    cv2.setMouseCallback(window_name, mouse_callback)
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    y_offset = 35
 
-    print(f"\nℹ️  {instruction_text}")
-    print("📝 Instructions:")
-    print("   1. Left-click to add polygon points")
-    print("   2. 'z' key to undo last point")
-    print("   3. 's' key to complete (minimum 3 points)")
-    print("   4. 'r' to reset and start over")
-    print("   5. 'q' to quit without saving")
+    # Stage indicator
+    if stage == 'division':
+        stage_text = "STEP 1/2: DIVISION AREA"
+        stage_color = COLORS['division']
+        workflow = "Draw the division area to monitor"
+    else:  # service_area
+        stage_text = f"STEP 2/2: SERVICE AREA #{service_areas_count + 1}"
+        stage_color = COLORS['service_area']
+        workflow = f"Draw service area #{service_areas_count + 1} (can draw multiple)"
 
-    while True:
-        display_frame = draw_roi_on_frame(frame, drawing_points, color)
+    cv2.putText(frame, stage_text, (20, y_offset), font, 0.8, stage_color, 2)
 
-        # Add instruction text
-        cv2.putText(display_frame, f"Points: {len(drawing_points)} | 's' to save | 'z' to undo | 'r' to reset | 'q' to quit",
-                   (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    # Workflow info
+    y_offset += 30
+    cv2.putText(frame, workflow, (20, y_offset), font, 0.5, (150, 255, 150), 1)
 
-        cv2.imshow(window_name, display_frame)
-        key = cv2.waitKey(1) & 0xFF
+    # Points counter
+    y_offset += 25
+    cv2.putText(frame, f"Points drawn: {points_count} (minimum 3)",
+               (20, y_offset), font, 0.5, (255, 255, 255), 1)
 
-        # 's' to save
-        if key == ord('s'):
-            if len(drawing_points) >= 3:
-                result_points = drawing_points.copy()
-                print(f"\n✅ Polygon completed with {len(result_points)} points")
-                cv2.destroyAllWindows()
-                return result_points
-            else:
-                print(f"\n⚠️  Need at least 3 points (currently {len(drawing_points)})")
+    # Service areas counter
+    if stage == 'service_area':
+        y_offset += 25
+        cv2.putText(frame, f"Service areas completed: {service_areas_count}",
+                   (20, y_offset), font, 0.5, (255, 255, 255), 1)
 
-        # 'z' to undo
-        elif key == ord('z'):
-            if drawing_points:
-                removed_point = drawing_points.pop()
-                print(f"   ↶ Undo: Removed point {removed_point} ({len(drawing_points)} points remaining)")
-            else:
-                print("   ⚠️  No points to undo")
+    # Instructions
+    y_offset += 35
+    cv2.putText(frame, "CONTROLS:", (20, y_offset), font, 0.6, (100, 255, 255), 2)
 
-        # 'r' to reset
-        elif key == ord('r'):
-            drawing_points = []
-            drawing_complete = False
-            print("\n🔄 Reset - start drawing again")
+    y_offset += 25
+    instructions = [
+        "'N' - Complete current polygon (min 3 points)",
+        "'D' - Done (only for service areas)",
+        "'Z' - Undo last point",
+        "'R' - Reset and start over",
+        "'Q' - Quit without saving"
+    ]
 
-        # 'q' to quit
-        elif key == ord('q'):
-            print("\n❌ Setup cancelled")
-            cv2.destroyAllWindows()
-            return None
+    for instruction in instructions:
+        cv2.putText(frame, instruction, (30, y_offset), font, 0.45, (200, 200, 200), 1)
+        y_offset += 20
 
-    cv2.destroyAllWindows()
-    return None
+    return frame
 
 
 def setup_division_and_service_areas(video_path):
     """Interactive setup for division and service areas"""
+    global drawing_points
+
     print("\n" + "="*70)
     print("🎯 Division + Service Areas Setup Mode")
     print("="*70)
@@ -339,80 +338,139 @@ def setup_division_and_service_areas(video_path):
 
     print(f"📸 Using first frame from: {os.path.basename(video_path)}")
     print(f"📏 Frame size: {frame.shape[1]}x{frame.shape[0]}")
-
-    # Step 1: Draw division
     print("\n" + "="*70)
-    print("📍 Step 1: Draw Division Area")
+    print("WORKFLOW:")
     print("="*70)
-    division_polygon = setup_polygon_interactive(
-        frame,
-        'Division Setup',
-        'Draw the division area to monitor',
-        COLORS['division']
-    )
+    print("   1. Draw DIVISION area, press 'N' to complete")
+    print("   2. Draw SERVICE AREA(s), press 'N' for each")
+    print("      (Can draw multiple service areas)")
+    print("   3. Press 'D' when done with all service areas")
+    print("\n   'N' - Complete current polygon")
+    print("   'D' - Done with service areas, save and finish")
+    print("   'Z' - Undo last point")
+    print("   'R' - Reset current polygon")
+    print("   'Q' - Quit without saving")
+    print("="*70 + "\n")
 
-    if division_polygon is None:
-        print("\n❌ Division setup cancelled")
-        return None
-
-    # Step 2: Draw service areas (multiple)
-    print("\n" + "="*70)
-    print("📍 Step 2: Draw Service Areas (can be multiple)")
-    print("="*70)
+    division_polygon = None
     service_areas = []
-    service_area_count = 1
+    drawing_points = []
+    current_stage = 'division'  # 'division' or 'service_area'
+
+    cv2.namedWindow('Region Setup', cv2.WINDOW_NORMAL)
+    cv2.resizeWindow('Region Setup', 1280, 720)
+    cv2.setMouseCallback('Region Setup', mouse_callback)
 
     while True:
-        print(f"\n🔷 Drawing Service Area #{service_area_count}")
-
-        # Show frame with division and existing service areas
         display_frame = frame.copy()
-        display_frame = draw_roi_on_frame(display_frame, division_polygon, COLORS['division'], 3, 0.1)
+
+        # Draw completed division
+        if division_polygon is not None:
+            display_frame = draw_roi_on_frame(display_frame, division_polygon, COLORS['division'], 3, 0.1)
+
+        # Draw completed service areas
         for sa in service_areas:
             display_frame = draw_roi_on_frame(display_frame, sa, COLORS['service_area'], 2, 0.15)
 
-        service_area_polygon = setup_polygon_interactive(
-            display_frame,
-            f'Service Area #{service_area_count} Setup',
-            f'Draw service area #{service_area_count} within the division',
-            COLORS['service_area']
-        )
+        # Get current drawing color
+        draw_color = COLORS['division'] if current_stage == 'division' else COLORS['service_area']
 
-        if service_area_polygon is None:
-            if len(service_areas) == 0:
-                print("\n⚠️  Must define at least one service area")
-                continue
+        # Draw current points being drawn
+        if len(drawing_points) > 0:
+            # Draw points
+            for idx, pt in enumerate(drawing_points):
+                cv2.circle(display_frame, pt, 7, draw_color, -1)
+                cv2.circle(display_frame, pt, 9, (255, 255, 255), 2)
+                cv2.putText(display_frame, f"{idx+1}", (pt[0] + 12, pt[1] - 5),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, draw_color, 2)
+
+            # Draw lines between points
+            if len(drawing_points) >= 2:
+                for i in range(len(drawing_points)):
+                    pt1 = drawing_points[i]
+                    pt2 = drawing_points[(i + 1) % len(drawing_points)]
+                    cv2.line(display_frame, pt1, pt2, draw_color, 3)
+
+            # Show preview polygon if we have 3+ points
+            if len(drawing_points) >= 3:
+                pts = np.array(drawing_points, np.int32)
+                pts = pts.reshape((-1, 1, 2))
+                cv2.polylines(display_frame, [pts], isClosed=True, color=draw_color, thickness=2)
+
+        # Draw instruction panel
+        display_frame = draw_instruction_panel(display_frame, current_stage,
+                                               len(drawing_points), len(service_areas))
+
+        cv2.imshow('Region Setup', display_frame)
+        key = cv2.waitKey(10) & 0xFF
+
+        # 'n' or 'N' to complete current polygon
+        if key == ord('n') or key == ord('N'):
+            if len(drawing_points) >= 3:
+                if current_stage == 'division':
+                    division_polygon = drawing_points.copy()
+                    print(f"\n✓ Division area completed with {len(division_polygon)} points")
+                    print(f"   >> Switching to SERVICE AREAS")
+                    print(f"   (Draw service areas, press 'D' when done)")
+                    current_stage = 'service_area'
+                    drawing_points = []
+
+                elif current_stage == 'service_area':
+                    service_areas.append(drawing_points.copy())
+                    print(f"\n✓ Service Area #{len(service_areas)} completed with {len(drawing_points)} points")
+                    print(f"   >> You can draw more service areas or press 'D' to finish")
+                    drawing_points = []
             else:
-                print(f"\n✅ Service area setup complete with {len(service_areas)} service area(s)")
-                break
+                print(f"\n✗ Need at least 3 points (currently {len(drawing_points)})")
 
-        service_areas.append(service_area_polygon)
-        service_area_count += 1
+        # 'd' or 'D' to finish service areas and save
+        elif key == ord('d') or key == ord('D'):
+            if current_stage == 'service_area' and division_polygon is not None and len(service_areas) > 0:
+                # Save configuration
+                region_data = {
+                    'division': division_polygon,
+                    'service_areas': service_areas,
+                    'frame_size': [frame.shape[1], frame.shape[0]],
+                    'video': video_path
+                }
 
-        # Ask if user wants to add more
-        print(f"\n✅ Service area #{len(service_areas)} saved!")
-        print("   Press Enter to add another service area, or 'q' to finish: ", end='')
+                with open(REGION_CONFIG_FILE, 'w') as f:
+                    json.dump(region_data, f, indent=2)
 
-        user_input = input().strip().lower()
-        if user_input == 'q':
-            break
+                print(f"\n{'='*70}")
+                print(f"✓ Configuration Saved: {REGION_CONFIG_FILE}")
+                print(f"{'='*70}")
+                print(f"   Division: {len(division_polygon)} points")
+                print(f"   Service areas: {len(service_areas)}")
+                print(f"{'='*70}\n")
 
-    # Save configuration
-    region_data = {
-        'division': division_polygon,
-        'service_areas': service_areas,
-        'frame_size': [frame.shape[1], frame.shape[0]],
-        'video': video_path
-    }
+                cv2.destroyAllWindows()
+                return region_data
+            elif current_stage == 'division':
+                print(f"\n⚠ You must complete the division first (press 'N' after drawing)")
+            elif len(service_areas) == 0:
+                print(f"\n⚠ You must draw at least one service area")
 
-    with open(REGION_CONFIG_FILE, 'w') as f:
-        json.dump(region_data, f, indent=2)
+        # 'z' or 'Z' to undo
+        elif key == ord('z') or key == ord('Z'):
+            if drawing_points:
+                removed_point = drawing_points.pop()
+                print(f"   ↶ Undo: Removed point {removed_point} ({len(drawing_points)} points remaining)")
 
-    print(f"\n💾 Configuration saved to: {REGION_CONFIG_FILE}")
-    print(f"   Division: {len(division_polygon)} points")
-    print(f"   Service areas: {len(service_areas)}")
+        # 'r' or 'R' to reset
+        elif key == ord('r') or key == ord('R'):
+            if drawing_points:
+                drawing_points = []
+                print("\n🔄 Reset - cleared current polygon")
 
-    return region_data
+        # 'q' or 'Q' to quit
+        elif key == ord('q') or key == ord('Q'):
+            print("\n❌ Setup cancelled")
+            cv2.destroyAllWindows()
+            return None
+
+    cv2.destroyAllWindows()
+    return None
 
 
 def load_region_config():
