@@ -409,12 +409,12 @@ def draw_all_rois(frame, tables, sitting_areas, is_labeling=False):
 def draw_enhanced_instruction_panel(frame, drawing_type, current_table_idx, tables_count, sitting_count, points_count, mouse_pos, current_sitting_count):
     """Draw enhanced instruction panel with visual feedback"""
     overlay = frame.copy()
-    panel_height = 210
-    panel_width = 580
+    panel_height = 250
+    panel_width = 680
 
-    # Semi-transparent background
+    # Semi-transparent black background (darker and larger)
     cv2.rectangle(overlay, (10, 10), (panel_width, panel_height), (0, 0, 0), -1)
-    cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
+    cv2.addWeighted(overlay, 0.85, frame, 0.15, 0, frame)
 
     font = cv2.FONT_HERSHEY_SIMPLEX
     y_offset = 35
@@ -456,11 +456,12 @@ def draw_enhanced_instruction_panel(frame, drawing_type, current_table_idx, tabl
     y_offset += 28
     instructions = [
         "WORKFLOW (can draw multiple Sitting areas per table):",
-        "  1. Click 4 corners for Table, press 'N'",
-        "  2. Click 4 corners for Sitting Area, press 'N' (repeat for more)",
+        "  1. Click 4 corners for Table, press Enter",
+        "  2. Click 4 corners for Sitting Area, press Enter (repeat for more)",
         "  3. Press 'D' when done with Sitting -> next table",
         "",
-        "CONTROLS: 'N' Add ROI | 'D' Done (next table) | 'Z' Undo | 'S' Save | 'Q' Quit"
+        "CONTROLS: Enter - Add ROI | D - Done (next table)",
+        "          Cmd+Z / Ctrl+Z - Undo | Cmd+S / Ctrl+S - Save | Q - Quit"
     ]
 
     for instruction in instructions:
@@ -496,15 +497,15 @@ def setup_tables_from_video(video_path):
     print("\n" + "="*70)
     print("WORKFLOW (Multiple Sitting Areas per Table):")
     print("="*70)
-    print("   1. Label TABLE area (yellow), press 'N'")
-    print("   2. Label SITTING AREAS (light yellow), press 'N' for each")
+    print("   1. Label TABLE area (yellow), press Enter")
+    print("   2. Label SITTING AREAS (light yellow), press Enter for each")
     print("      (Can draw multiple sitting areas for one table)")
     print("   3. Press 'D' to complete this table and start next")
-    print("\n   'N' - Complete current ROI and add it")
-    print("   'D' - Done with current table, start next")
-    print("   'S' - Save all and finish")
-    print("   'Z' - Undo last point")
-    print("   'Q' - Quit without saving")
+    print("\n   Enter/Return - Complete current ROI and add it")
+    print("   D - Done with current table, start next")
+    print("   Cmd+S / Ctrl+S - Save all and finish")
+    print("   Cmd+Z / Ctrl+Z - Undo operation")
+    print("   Q - Quit without saving")
     print("="*70 + "\n")
 
     tables = []
@@ -517,6 +518,9 @@ def setup_tables_from_video(video_path):
 
     # Track how many sitting areas for current table
     current_table_sitting_count = 0
+
+    # Operation history for advanced undo
+    operation_history = []  # Stack of (operation_type, data) tuples
 
     cv2.namedWindow('ROI Setup', cv2.WINDOW_NORMAL)
     cv2.resizeWindow('ROI Setup', 1280, 720)
@@ -573,8 +577,8 @@ def setup_tables_from_video(video_path):
         cv2.imshow('ROI Setup', display_frame)
         key = cv2.waitKey(10) & 0xFF
 
-        # 'n' or 'N' to add current ROI
-        if key == ord('n') or key == ord('N'):
+        # Enter/Return to add current ROI
+        if key == 13 or key == 10:  # Enter/Return key
             if len(current_table_points) == 4:
                 # Create ROI from 4 points as a polygon
                 polygon = current_table_points.copy()
@@ -584,6 +588,7 @@ def setup_tables_from_video(video_path):
                     table_id = f"T{current_table_index + 1}"
                     table = Table(table_id, polygon)
                     tables.append(table)
+                    operation_history.append(('table', (table, table_id)))
                     print(f"\n✓ Table {table_id} created")
                     print(f"   >> Auto-switching to SITTING AREAS for {table_id}")
                     print(f"   (You can draw multiple sitting areas, press 'D' when done)")
@@ -600,6 +605,7 @@ def setup_tables_from_video(video_path):
                     table_id = f"T{current_table_index + 1}"
                     sitting_area = SittingArea(sitting_id, polygon, table_id)
                     sitting_areas.append(sitting_area)
+                    operation_history.append(('sitting_area', (sitting_area, sitting_id, table_id)))
 
                     # Link to table
                     tables[current_table_index].sitting_area_ids.append(sitting_id)
@@ -630,17 +636,17 @@ def setup_tables_from_video(video_path):
                 print(f"\n>> Starting TABLE {current_table_index + 1}...")
 
             elif drawing_type == 'table':
-                print(f"\n⚠ You must complete the table first (press 'N' after drawing 4 points)")
+                print(f"\n⚠ You must complete the table first (press Enter after drawing 4 points)")
 
-        # 's' or 'S' to save all ROIs
-        elif key == ord('s') or key == ord('S'):
+        # Cmd+S / Ctrl+S to save all ROIs
+        elif key == 19:  # Ctrl+S
             if len(tables) > 0:
                 # Check if there are incomplete tables
                 if drawing_type != 'table' or current_table_points:
                     print(f"\n⚠ Warning: Current table not complete!")
                     print(f"   Current mode: {drawing_type}")
                     print(f"   Points drawn: {len(current_table_points)}")
-                    print(f"   Press 'S' again to save anyway, or 'N' to complete current ROI")
+                    print(f"   Press Cmd+S / Ctrl+S again to save anyway, or Enter to complete current ROI")
                     continue
 
                 # Save to config file
@@ -679,13 +685,30 @@ def setup_tables_from_video(video_path):
             else:
                 print("\n✗ No tables defined yet")
 
-        # 'z' or 'Z' to undo
-        elif key == ord('z') or key == ord('Z'):
-            if current_table_points:
+        # Cmd+Z / Ctrl+Z to undo (advanced undo)
+        elif key == 26:  # Ctrl+Z
+            # Advanced undo - can undo points OR completed operations
+            if len(current_table_points) > 0:
+                # Undo points in current drawing
                 removed_point = current_table_points.pop()
                 print(f"   ↶ Undo: Removed point {removed_point}")
+            elif len(operation_history) > 0:
+                # Undo last completed operation
+                op_type, op_data = operation_history.pop()
+                if op_type == 'table':
+                    table_obj, table_id = op_data
+                    tables.pop()
+                    drawing_type = 'table'
+                    print(f"\n↶ Undo: Removed table {table_id}, back to table stage")
+                elif op_type == 'sitting_area':
+                    sitting_obj, sitting_id, table_id = op_data
+                    sitting_areas.pop()
+                    # Remove from table's sitting_area_ids
+                    tables[current_table_index].sitting_area_ids.pop()
+                    current_table_sitting_count -= 1
+                    print(f"\n↶ Undo: Removed sitting area {sitting_id}")
             else:
-                print("   ✗ No points to undo")
+                print("   ⚠️  Nothing to undo")
 
         # 'q' or 'Q' to quit
         elif key == ord('q') or key == ord('Q'):

@@ -258,12 +258,12 @@ def draw_roi_on_frame(frame, points, color=(255, 255, 0), thickness=2, fill_alph
 def draw_instruction_panel(frame, stage, points_count, service_areas_count):
     """Draw instruction panel on frame"""
     overlay = frame.copy()
-    panel_height = 210
-    panel_width = 580
+    panel_height = 240
+    panel_width = 650
 
-    # Semi-transparent background
+    # Semi-transparent black background (darker and larger)
     cv2.rectangle(overlay, (10, 10), (panel_width, panel_height), (0, 0, 0), -1)
-    cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
+    cv2.addWeighted(overlay, 0.85, frame, 0.15, 0, frame)
 
     font = cv2.FONT_HERSHEY_SIMPLEX
     y_offset = 35
@@ -301,16 +301,16 @@ def draw_instruction_panel(frame, stage, points_count, service_areas_count):
 
     y_offset += 25
     instructions = [
-        "'N' - Complete current polygon (min 3 points)",
-        "'D' - Done (only for service areas)",
-        "'Z' - Undo last point",
-        "'R' - Reset and start over",
-        "'Q' - Quit without saving"
+        "Enter/Return - Complete current polygon (min 3 points)",
+        "Cmd+S / Ctrl+S - Save and finish",
+        "Cmd+Z / Ctrl+Z - Undo operation",
+        "R - Reset current polygon",
+        "Q - Quit without saving"
     ]
 
     for instruction in instructions:
         cv2.putText(frame, instruction, (30, y_offset), font, 0.45, (200, 200, 200), 1)
-        y_offset += 20
+        y_offset += 22
 
     return frame
 
@@ -341,21 +341,24 @@ def setup_division_and_service_areas(video_path):
     print("\n" + "="*70)
     print("WORKFLOW:")
     print("="*70)
-    print("   1. Draw DIVISION area, press 'N' to complete")
-    print("   2. Draw SERVICE AREA(s), press 'N' for each")
+    print("   1. Draw DIVISION area, press Enter to complete")
+    print("   2. Draw SERVICE AREA(s), press Enter for each")
     print("      (Can draw multiple service areas)")
-    print("   3. Press 'D' when done with all service areas")
-    print("\n   'N' - Complete current polygon")
-    print("   'D' - Done with service areas, save and finish")
-    print("   'Z' - Undo last point")
-    print("   'R' - Reset current polygon")
-    print("   'Q' - Quit without saving")
+    print("   3. Press Cmd+S / Ctrl+S when done with all service areas")
+    print("\n   Enter/Return - Complete current polygon")
+    print("   Cmd+S / Ctrl+S - Save and finish")
+    print("   Cmd+Z / Ctrl+Z - Undo operation")
+    print("   R - Reset current polygon")
+    print("   Q - Quit without saving")
     print("="*70 + "\n")
 
     division_polygon = None
     service_areas = []
     drawing_points = []
     current_stage = 'division'  # 'division' or 'service_area'
+
+    # Operation history for advanced undo
+    operation_history = []  # Stack of (operation_type, data) tuples
 
     cv2.namedWindow('Region Setup', cv2.WINDOW_NORMAL)
     cv2.resizeWindow('Region Setup', 1280, 720)
@@ -404,27 +407,35 @@ def setup_division_and_service_areas(video_path):
         cv2.imshow('Region Setup', display_frame)
         key = cv2.waitKey(10) & 0xFF
 
-        # 'n' or 'N' to complete current polygon
-        if key == ord('n') or key == ord('N'):
+        # Get modifier keys (Cmd on Mac, Ctrl on Windows/Linux)
+        # OpenCV doesn't directly support Cmd key, so we'll use platform detection
+        import platform
+        is_mac = platform.system() == 'Darwin'
+
+        # Enter/Return to complete current polygon
+        if key == 13 or key == 10:  # Enter/Return key
             if len(drawing_points) >= 3:
                 if current_stage == 'division':
                     division_polygon = drawing_points.copy()
+                    operation_history.append(('division', division_polygon))
                     print(f"\n✓ Division area completed with {len(division_polygon)} points")
                     print(f"   >> Switching to SERVICE AREAS")
-                    print(f"   (Draw service areas, press 'D' when done)")
+                    print(f"   (Draw service areas, press Cmd+S / Ctrl+S when done)")
                     current_stage = 'service_area'
                     drawing_points = []
 
                 elif current_stage == 'service_area':
-                    service_areas.append(drawing_points.copy())
+                    new_service_area = drawing_points.copy()
+                    service_areas.append(new_service_area)
+                    operation_history.append(('service_area', new_service_area))
                     print(f"\n✓ Service Area #{len(service_areas)} completed with {len(drawing_points)} points")
-                    print(f"   >> You can draw more service areas or press 'D' to finish")
+                    print(f"   >> You can draw more service areas or press Cmd+S / Ctrl+S to finish")
                     drawing_points = []
             else:
                 print(f"\n✗ Need at least 3 points (currently {len(drawing_points)})")
 
-        # 'd' or 'D' to finish service areas and save
-        elif key == ord('d') or key == ord('D'):
+        # Cmd+S / Ctrl+S to finish service areas and save
+        elif key == 19:  # Ctrl+S
             if current_stage == 'service_area' and division_polygon is not None and len(service_areas) > 0:
                 # Save configuration
                 region_data = {
@@ -447,15 +458,29 @@ def setup_division_and_service_areas(video_path):
                 cv2.destroyAllWindows()
                 return region_data
             elif current_stage == 'division':
-                print(f"\n⚠ You must complete the division first (press 'N' after drawing)")
+                print(f"\n⚠ You must complete the division first (press Enter after drawing)")
             elif len(service_areas) == 0:
                 print(f"\n⚠ You must draw at least one service area")
 
-        # 'z' or 'Z' to undo
-        elif key == ord('z') or key == ord('Z'):
-            if drawing_points:
+        # Cmd+Z / Ctrl+Z to undo (advanced undo)
+        elif key == 26:  # Ctrl+Z
+            # Advanced undo - can undo points OR completed operations
+            if len(drawing_points) > 0:
+                # Undo points in current drawing
                 removed_point = drawing_points.pop()
                 print(f"   ↶ Undo: Removed point {removed_point} ({len(drawing_points)} points remaining)")
+            elif len(operation_history) > 0:
+                # Undo last completed operation
+                op_type, op_data = operation_history.pop()
+                if op_type == 'division':
+                    division_polygon = None
+                    current_stage = 'division'
+                    print(f"\n↶ Undo: Removed division area, back to division stage")
+                elif op_type == 'service_area':
+                    service_areas.pop()
+                    print(f"\n↶ Undo: Removed service area #{len(service_areas) + 1}")
+            else:
+                print("   ⚠️  Nothing to undo")
 
         # 'r' or 'R' to reset
         elif key == ord('r') or key == ord('R'):
@@ -663,11 +688,24 @@ def draw_detections_with_state(frame, detections, division_polygon, service_area
     """Draw detections, division, service areas, stats overlay, and state-based coloring"""
     annotated_frame = frame.copy()
 
-    # Apply state-based overlay
-    state_color = STATE_COLORS.get(state, STATE_COLORS['red'])
-    overlay = annotated_frame.copy()
-    overlay[:] = state_color
-    cv2.addWeighted(overlay, 0.2, annotated_frame, 0.8, 0, annotated_frame)
+    # Apply state-based overlay ONLY within division polygon
+    if division_polygon is not None and len(division_polygon) >= 3:
+        state_color = STATE_COLORS.get(state, STATE_COLORS['red'])
+        overlay = annotated_frame.copy()
+
+        # Create mask for division polygon
+        mask = np.zeros(annotated_frame.shape[:2], dtype=np.uint8)
+        pts = np.array(division_polygon, np.int32)
+        cv2.fillPoly(mask, [pts], 255)
+
+        # Fill only the division area with state color
+        overlay[mask == 255] = state_color
+
+        # Blend only within the division polygon
+        annotated_frame[mask == 255] = cv2.addWeighted(
+            overlay[mask == 255], 0.2,
+            annotated_frame[mask == 255], 0.8, 0
+        )
 
     # Draw division boundary
     if division_polygon is not None and len(division_polygon) >= 3:
