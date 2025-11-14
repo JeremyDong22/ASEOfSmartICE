@@ -252,14 +252,11 @@ check_prerequisites() {
 
     # Check disk space
     print_step "Checking disk space..."
-    local available_gb=$(df -BG "$PARENT_DIR" | tail -1 | awk '{print $4}' | sed 's/G//')
-    if [[ $available_gb -ge 50 ]]; then
-        print_success "Available disk space: ${available_gb}GB (good)"
-    elif [[ $available_gb -ge 20 ]]; then
-        print_warning "Available disk space: ${available_gb}GB (low, monitor usage)"
+    if python3 "$SCRIPTS_ROOT/monitoring/check_disk_space.py" --check; then
+        print_success "Sufficient disk space available"
     else
-        print_error "Available disk space: ${available_gb}GB (critical, need at least 20GB)"
-        all_good=false
+        print_warning "Disk space may be insufficient"
+        print_info "Run: python3 $SCRIPTS_ROOT/monitoring/check_disk_space.py --cleanup"
     fi
 
     echo ""

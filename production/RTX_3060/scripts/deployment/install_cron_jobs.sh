@@ -101,6 +101,7 @@ check_prerequisites() {
         "orchestration/process_videos_orchestrator.py"
         "maintenance/cleanup_old_videos.sh"
         "time_sync/verify_time_sync.sh"
+        "monitoring/check_disk_space.py"
     )
 
     for script in "${required_scripts[@]}"; do
@@ -252,8 +253,8 @@ CRONEOF
 # Time sync verification: Every hour
 0 * * * * cd $PROJECT_DIR && bash time_sync/verify_time_sync.sh >> $PROJECT_DIR/logs/time_sync.log 2>&1
 
-# Disk space check: Every 2 hours (alert if <10GB free)
-0 */2 * * * df -h $PROJECT_DIR | awk 'NR==2 {if (substr(\$4, 1, length(\$4)-1) < 10) print "WARNING: Low disk space - " \$4 " remaining"}' >> $PROJECT_DIR/logs/disk_space.log 2>&1
+# Disk space check: Every 2 hours with automatic cleanup
+0 */2 * * * cd $PROJECT_DIR && python3 scripts/monitoring/check_disk_space.py --cleanup >> $PROJECT_DIR/logs/disk_space.log 2>&1
 
 # GPU health check: Every 5 minutes during processing window (11 PM - 7 AM)
 # Only runs on Linux with nvidia-smi available

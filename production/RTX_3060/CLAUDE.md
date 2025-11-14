@@ -76,6 +76,10 @@ production/RTX_3060/
 │   ├── orchestration/       # Multi-camera batch processing
 │   ├── time_sync/           # NTP synchronization
 │   ├── maintenance/         # Cleanup and monitoring
+│   ├── monitoring/          # System health monitoring
+│   │   ├── check_disk_space.py      # Disk space monitoring with smart cleanup
+│   │   ├── monitor_gpu.py           # GPU temperature and utilization
+│   │   └── system_health.py         # Comprehensive health check
 │   ├── deployment/          # Setup and configuration
 │   ├── config/              # Configuration files
 │   │   ├── cameras_config.json       # Camera IP addresses
@@ -167,6 +171,56 @@ ls -la ../db/screenshots/[session_id]/division_*.jpg
 # Table state changes
 ls -la ../db/screenshots/[session_id]/T1_*.jpg
 ```
+
+## System Monitoring
+
+### monitoring/
+Real-time system health monitoring and management.
+
+**Scripts:**
+- `check_disk_space.py` - Disk space monitoring with smart cleanup
+- `monitor_gpu.py` - GPU temperature and utilization tracking
+- `system_health.py` - Comprehensive health check
+
+**Key Features:**
+- **Smart Cleanup**: Automatically deletes oldest videos when space < 100GB
+- **Protected Dates**: Always keeps today + yesterday (for processing)
+- **Critical Alerts**: Warns if can't store even 1 day of videos
+- **GPU Monitoring**: Real-time temperature and utilization
+- **Exit Codes**: 0=healthy, 1=warning, 2=critical
+
+**Usage:**
+```bash
+# Check disk space
+python3 monitoring/check_disk_space.py --check
+
+# Auto-cleanup if needed
+python3 monitoring/check_disk_space.py --cleanup
+
+# Dry run (test without deleting)
+python3 monitoring/check_disk_space.py --cleanup --dry-run
+
+# Monitor GPU
+python3 monitoring/monitor_gpu.py
+
+# Watch GPU continuously
+python3 monitoring/monitor_gpu.py --watch 30
+
+# Full health check
+python3 monitoring/system_health.py
+```
+
+**Smart Cleanup Logic:**
+1. Check available disk space
+2. If < 100GB, identify date folders to delete
+3. Protect today's recordings (currently recording)
+4. Protect yesterday's recordings (will be processed at midnight)
+5. Delete oldest videos first (oldest → newest)
+6. Stop when target space reached
+7. If can't store 1 day of videos → Critical alert
+
+**Automated Monitoring:**
+Disk space check runs every 2 hours via cron (see `deployment/install_cron_jobs.sh`)
 
 ## Configuration Files
 
