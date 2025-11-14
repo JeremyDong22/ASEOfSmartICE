@@ -301,18 +301,47 @@ python3 monitoring/system_health.py
 6. Compare predicted free space vs current
 7. Proactive cleanup if prediction shows future shortage
 
-**Smart Cleanup Logic:**
-1. Check available disk space
-2. If < 100GB (or prediction shows shortage), identify date folders to delete
-3. Protect today's recordings (currently recording)
-4. Protect yesterday's recordings (will be processed at midnight)
-5. Delete oldest videos first (oldest → newest)
-6. Stop when target space reached
-7. If can't store 1 day of videos → Critical alert
+**Smart Cleanup Logic (v2.0.0):**
+
+Three-phase intelligent cleanup with different retention policies:
+
+**Phase 1: Screenshot Cleanup**
+- Retention: 30 days
+- Location: `db/screenshots/`
+- Logic: Delete screenshots older than 30 days
+- Always runs (independent of disk space)
+
+**Phase 2: Raw Video Cleanup (Intelligent)**
+- Retention: Max 2 days (or delete when processed)
+- Location: `videos/YYYYMMDD/camera_XX/`
+- Logic:
+  - **Today (age=0)**: Always keep (currently recording)
+  - **≥1 day + processed**: Delete (has results in `results/`)
+  - **>2 days**: Delete unconditionally (max retention limit)
+- Smart detection: Checks if `results/YYYYMMDD/camera_XX/*.mp4` exists
+- Result: Raw videos deleted as soon as processed, freeing space faster
+
+**Phase 3: Processed Video Cleanup**
+- Retention: 2 days
+- Location: `results/YYYYMMDD/`
+- Logic: Delete folders older than 2 days
+- Simple age-based cleanup
+
+**Phase 4: Database (Permanent Storage)**
+- Retention: ♾️ **Permanent** (never deleted)
+- Location: `db/detection_data.db`
+- Contains all state change history for business analytics
+
+**Cleanup Priority:**
+1. Screenshots (30 days) → Free up screenshot storage
+2. Raw videos (intelligent) → Free up largest storage (raw footage)
+3. Processed videos (2 days) → Free up processed results
+4. Database → **Never deleted** (permanent business data)
 
 **Automated Monitoring:**
 Disk space check runs **hourly** via cron (see `deployment/install_cron_jobs.sh`)
 - **Changed from 2-hour to 1-hour intervals for better prediction accuracy**
+- Automatically triggers cleanup when space < 100GB or prediction shows shortage
 
 ## Configuration Files
 

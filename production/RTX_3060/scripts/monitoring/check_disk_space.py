@@ -53,6 +53,11 @@ RECORDING_START_HOUR = 11  # 11 AM
 RECORDING_END_HOUR = 21    # 9 PM (21:00)
 OBSERVATION_SECONDS = 30   # Observe disk usage for 30 seconds
 
+# Data retention policies (in days)
+SCREENSHOTS_RETENTION_DAYS = 30  # Keep screenshots for 30 days
+PROCESSED_VIDEO_RETENTION_DAYS = 2  # Keep processed videos for 2 days
+RAW_VIDEO_RETENTION_DAYS = 2  # Keep raw videos max 2 days (or delete when processed)
+
 def get_disk_usage(path):
     """Get disk usage statistics in GB"""
     stat = os.statvfs(str(path))
@@ -94,6 +99,44 @@ def get_folder_size(folder):
             if os.path.exists(filepath):
                 total_size += os.path.getsize(filepath)
     return total_size / (1024**3)  # Convert to GB
+
+def check_video_processed(video_date, camera_id):
+    """
+    Check if raw video has been processed by looking for results
+
+    Args:
+        video_date: Date string (YYYYMMDD)
+        camera_id: Camera ID (e.g., camera_35)
+
+    Returns:
+        bool: True if processed results exist
+    """
+    # Check if results folder exists for this date/camera
+    result_path = RESULTS_DIR / video_date / camera_id
+    if not result_path.exists():
+        return False
+
+    # Check if there are any .mp4 files (processed videos)
+    mp4_files = list(result_path.glob("*.mp4"))
+    return len(mp4_files) > 0
+
+def get_date_age_days(date_str):
+    """
+    Calculate how many days old a date string is
+
+    Args:
+        date_str: Date string (YYYYMMDD)
+
+    Returns:
+        int: Number of days old (0 = today, 1 = yesterday, etc.)
+    """
+    try:
+        date_obj = datetime.strptime(date_str, "%Y%m%d")
+        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        delta = today - date_obj.replace(hour=0, minute=0, second=0, microsecond=0)
+        return delta.days
+    except ValueError:
+        return 999  # Invalid date, treat as very old
 
 def measure_disk_usage_speed(observation_seconds=OBSERVATION_SECONDS):
     """
@@ -281,82 +324,189 @@ def predict_space_needed(usage_rate_gb_per_hour, remaining_hours):
         'message': message
     }
 
+def cleanup_screenshots(dry_run=False):
+    """
+    Clean up old screenshots (>30 days)
+
+    Returns:
+        float: GB freed
+    """
+    print(f"\n{'='*70}")
+    print("SCREENSHOT CLEANUP")
+    print(f"{'='*70}")
+    print(f"Retention policy: {SCREENSHOTS_RETENTION_DAYS} days")
+
+    screenshots_dir = DB_DIR / "screenshots"
+    if not screenshots_dir.exists():
+        print("No screenshots directory found")
+        return 0.0
+
+    freed_gb = 0.0
+    cutoff_date = datetime.now() - timedelta(days=SCREENSHOTS_RETENTION_DAYS)
+
+    # Iterate through camera folders
+    for camera_folder in screenshots_dir.iterdir():
+        if not camera_folder.is_dir():
+            continue
+
+        # Iterate through date folders under each camera
+        for date_folder in camera_folder.iterdir():
+            if not date_folder.is_dir() or not date_folder.name.isdigit():
+                continue
+
+            # Check if date is older than retention period
+            try:
+                folder_date = datetime.strptime(date_folder.name, "%Y%m%d")
+                if folder_date < cutoff_date:
+                    size_gb = get_folder_size(date_folder)
+                    if dry_run:
+                        print(f"[DRY RUN] Would delete {camera_folder.name}/{date_folder.name} ({size_gb:.3f} GB)")
+                    else:
+                        print(f"🗑️  Deleting {camera_folder.name}/{date_folder.name} ({size_gb:.3f} GB)")
+                        shutil.rmtree(date_folder)
+                    freed_gb += size_gb
+            except ValueError:
+                continue
+
+    print(f"Screenshots freed: {freed_gb:.3f} GB")
+    print(f"{'='*70}\n")
+    return freed_gb
+
 def smart_cleanup(target_free_gb, dry_run=False):
     """
-    Intelligently delete old videos to free up space
+    Intelligently delete old data to free up space
 
-    Rules:
-    - Keep today's videos (currently recording)
-    - Keep yesterday's videos (will be processed at midnight)
-    - Delete older videos first (oldest → newest)
-    - Stop when target space is reached
+    Retention policies:
+    - Raw videos (videos/): Delete when processed + >1 day, or >2 days unconditionally
+    - Processed videos (results/): Delete when >2 days
+    - Screenshots (db/screenshots/): Delete when >30 days
+    - Database (db/detection_data.db): Never delete (permanent storage)
     """
-    today = datetime.now().strftime("%Y%m%d")
-    yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y%m%d")
-
     print(f"\n{'='*70}")
-    print("SMART CLEANUP")
+    print("INTELLIGENT CLEANUP v2.0")
     print(f"{'='*70}")
-    print(f"Today: {today}")
-    print(f"Yesterday: {yesterday}")
     print(f"Target free space: {target_free_gb:.1f} GB")
+    print(f"")
+    print(f"Retention Policies:")
+    print(f"  Raw videos: Max {RAW_VIDEO_RETENTION_DAYS} days (delete when processed)")
+    print(f"  Processed videos: {PROCESSED_VIDEO_RETENTION_DAYS} days")
+    print(f"  Screenshots: {SCREENSHOTS_RETENTION_DAYS} days")
+    print(f"  Database: Permanent (never deleted)")
     print(f"{'='*70}\n")
 
     # Get current space
     current = get_disk_usage(PROJECT_DIR)
-    freed_space_gb = 0
+    total_freed_gb = 0.0
 
-    # Get all date folders from videos and results
+    # Phase 1: Clean up screenshots (always run, independent of disk space)
+    print("Phase 1: Screenshot Cleanup")
+    screenshot_freed = cleanup_screenshots(dry_run=dry_run)
+    total_freed_gb += screenshot_freed
+
+    # Check if we've met target
+    projected_free = current['free_gb'] + total_freed_gb
+    if projected_free >= target_free_gb:
+        print(f"\n✅ Target reached after screenshot cleanup!")
+        print(f"   Projected free space: {projected_free:.1f} GB")
+        return total_freed_gb
+
+    # Phase 2: Clean up raw videos (intelligent - check if processed)
+    print("Phase 2: Raw Video Cleanup (Intelligent)")
+    print(f"{'='*70}")
+
     video_folders = get_date_folders(VIDEOS_DIR)
-    result_folders = get_date_folders(RESULTS_DIR)
+    for date_folder in video_folders:
+        date_str = date_folder.name
+        age_days = get_date_age_days(date_str)
 
-    # Combine and deduplicate by date
-    all_folders = {}
-    for folder in video_folders:
-        date_str = folder.name
-        if date_str not in all_folders:
-            all_folders[date_str] = []
-        all_folders[date_str].append(VIDEOS_DIR / date_str)
-
-    for folder in result_folders:
-        date_str = folder.name
-        if date_str not in all_folders:
-            all_folders[date_str] = []
-        all_folders[date_str].append(RESULTS_DIR / date_str)
-
-    # Sort by date (oldest first)
-    sorted_dates = sorted(all_folders.keys())
-
-    # Delete oldest folders until target is reached
-    for date_str in sorted_dates:
-        # Skip today and yesterday
-        if date_str in [today, yesterday]:
-            print(f"⏭  Skipping {date_str} (protected: {'today' if date_str == today else 'yesterday'})")
+        # Skip today (currently recording)
+        if age_days == 0:
+            print(f"⏭  Skipping {date_str} (today - still recording)")
             continue
 
-        # Calculate space we'll free
-        folders_to_delete = all_folders[date_str]
-        date_size_gb = sum(get_folder_size(f) for f in folders_to_delete if f.exists())
+        # Check each camera subfolder
+        for camera_folder in date_folder.iterdir():
+            if not camera_folder.is_dir():
+                continue
 
-        if dry_run:
-            print(f"[DRY RUN] Would delete {date_str} ({date_size_gb:.2f} GB)")
+            camera_id = camera_folder.name
+            is_processed = check_video_processed(date_str, camera_id)
+
+            # Decision logic
+            should_delete = False
+            reason = ""
+
+            if age_days > RAW_VIDEO_RETENTION_DAYS:
+                # Older than 2 days - delete unconditionally
+                should_delete = True
+                reason = f">{RAW_VIDEO_RETENTION_DAYS} days old"
+            elif age_days >= 1 and is_processed:
+                # Processed and at least 1 day old - safe to delete
+                should_delete = True
+                reason = "processed + ≥1 day old"
+
+            if should_delete:
+                size_gb = get_folder_size(camera_folder)
+                if dry_run:
+                    print(f"[DRY RUN] Would delete {date_str}/{camera_id} ({size_gb:.2f} GB) - {reason}")
+                else:
+                    print(f"🗑️  Deleting {date_str}/{camera_id} ({size_gb:.2f} GB) - {reason}")
+                    shutil.rmtree(camera_folder)
+                total_freed_gb += size_gb
+
+                # Check if target reached
+                projected_free = current['free_gb'] + total_freed_gb
+                if projected_free >= target_free_gb:
+                    print(f"\n✅ Target reached!")
+                    print(f"   Projected free space: {projected_free:.1f} GB")
+                    return total_freed_gb
+            else:
+                status = "processed" if is_processed else "not processed yet"
+                print(f"⏭  Keeping {date_str}/{camera_id} (age:{age_days}d, {status})")
+
+    print(f"{'='*70}\n")
+
+    # Phase 3: Clean up processed videos (simple age-based)
+    print("Phase 3: Processed Video Cleanup")
+    print(f"{'='*70}")
+
+    result_folders = get_date_folders(RESULTS_DIR)
+    for date_folder in result_folders:
+        date_str = date_folder.name
+        age_days = get_date_age_days(date_str)
+
+        # Delete if older than retention policy
+        if age_days > PROCESSED_VIDEO_RETENTION_DAYS:
+            size_gb = get_folder_size(date_folder)
+            if dry_run:
+                print(f"[DRY RUN] Would delete results/{date_str} ({size_gb:.2f} GB)")
+            else:
+                print(f"🗑️  Deleting results/{date_str} ({size_gb:.2f} GB)")
+                shutil.rmtree(date_folder)
+            total_freed_gb += size_gb
+
+            # Check if target reached
+            projected_free = current['free_gb'] + total_freed_gb
+            if projected_free >= target_free_gb:
+                print(f"\n✅ Target reached!")
+                print(f"   Projected free space: {projected_free:.1f} GB")
+                return total_freed_gb
         else:
-            print(f"🗑️  Deleting {date_str} ({date_size_gb:.2f} GB)...")
-            for folder in folders_to_delete:
-                if folder.exists():
-                    shutil.rmtree(folder)
-                    print(f"   Deleted: {folder}")
+            print(f"⏭  Keeping results/{date_str} (age:{age_days}d)")
 
-        freed_space_gb += date_size_gb
+    print(f"{'='*70}\n")
 
-        # Check if we've freed enough space
-        projected_free = current['free_gb'] + freed_space_gb
-        if projected_free >= target_free_gb:
-            print(f"\n✅ Target reached! Projected free space: {projected_free:.1f} GB")
-            break
+    # Summary
+    print(f"\n{'='*70}")
+    print(f"CLEANUP SUMMARY")
+    print(f"{'='*70}")
+    print(f"Total space freed: {total_freed_gb:.2f} GB")
+    print(f"  Screenshots: {screenshot_freed:.3f} GB")
+    print(f"  Videos: {total_freed_gb - screenshot_freed:.2f} GB")
+    print(f"Projected free space: {current['free_gb'] + total_freed_gb:.1f} GB")
+    print(f"{'='*70}\n")
 
-    print(f"\nTotal space freed: {freed_space_gb:.1f} GB")
-    return freed_space_gb
+    return total_freed_gb
 
 def check_and_cleanup(min_space_gb, auto_cleanup=False, dry_run=False, use_prediction=True):
     """Main check and cleanup logic with intelligent prediction"""
