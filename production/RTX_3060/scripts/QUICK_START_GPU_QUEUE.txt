@@ -1,0 +1,401 @@
+================================================================================
+QUICK START GUIDE - GPU Queue Management v2.0.0
+================================================================================
+
+WHAT'S NEW?
+
+This is a COMPLETE rewrite from simple threading to intelligent GPU queue
+management. Key differences:
+
+OLD (v1.0.0):
+- One thread per camera (uncontrolled parallelism)
+- No GPU monitoring
+- Console spam with verbose output
+- No logging to files
+
+NEW (v2.0.0):
+- Job queue with dynamic concurrency control
+- GPU temperature/utilization/memory monitoring
+- Smart logging to files (14-day rotation)
+- Minimal console output
+- Performance metrics and statistics
+
+================================================================================
+BASIC USAGE
+================================================================================
+
+1. PROCESS ALL VIDEOS (DEFAULT)
+
+   cd /path/to/production/RTX_3060/scripts
+   python3 process_videos_orchestrator.py
+
+   What happens:
+   - Scans videos/ directory for all .mp4 files
+   - Groups by camera_id
+   - Processes oldest videos first
+   - Up to 4 parallel jobs (healthy GPU)
+   - Logs to logs/processing_YYYYMMDD_HHMMSS.log
+
+2. TEST MODE (60 SECONDS PER VIDEO)
+
+   python3 process_videos_orchestrator.py --duration 60
+
+   What happens:
+   - Same as above, but only processes 60s of each video
+   - Useful for testing before full run
+   - Verifies GPU queue management works
+
+3. CONSERVATIVE MODE (LESS GPU LOAD)
+
+   python3 process_videos_orchestrator.py --max-parallel 2 --gpu-temp-limit 75
+
+   What happens:
+   - Maximum 2 parallel jobs (instead of 4)
+   - Reduces parallelism at 75°C (instead of 80°C)
+   - Safer for older GPUs or hot environments
+
+4. DEBUG MODE (VERBOSE LOGGING)
+
+   python3 process_videos_orchestrator.py --log-level DEBUG
+
+   What happens:
+   - Extra detailed logs written to file
+   - Useful for troubleshooting
+   - Console still minimal
+
+5. LIST VIDEOS WITHOUT PROCESSING
+
+   python3 process_videos_orchestrator.py --list
+
+   What happens:
+   - Shows all discovered videos grouped by camera
+   - Displays timestamps
+   - Exits without processing
+
+================================================================================
+WHAT TO EXPECT
+================================================================================
+
+CONSOLE OUTPUT (MINIMAL):
+
+Logging initialized: /path/to/logs/processing_20251114_220530.log
+Error log: /path/to/logs/errors_20251114.log
+Python version: 3.10.8 (...)
+Platform: Linux 5.15.0-88-generic
+Script directory: /path/to/scripts
+Scanning for videos in: /path/to/videos
+================================================================================
+MULTI-CAMERA VIDEO PROCESSING WITH GPU QUEUE MANAGEMENT
+================================================================================
+Cameras: 3
+Total jobs: 12
+Max parallel jobs: 4
+GPU temp limit: 80°C
+Processing duration: 60s per video
+================================================================================
+camera_35: 5 video(s)
+camera_22: 4 video(s)
+camera_18: 3 video(s)
+================================================================================
+Starting processing...
+================================================================================
+Starting 4 worker threads
+GPU monitoring thread started (interval: 30s)
+...
+(minimal progress updates)
+...
+================================================================================
+PROCESSING COMPLETE
+================================================================================
+Total jobs: 12
+Completed: 11
+Failed: 1
+Success rate: 91.7%
+Total time: 245.0s (4.1 minutes)
+Avg time per job: 71.8s
+================================================================================
+Final GPU state:
+GPU: 64°C | Util: 42% | Mem: 3856MB / 12288MB (31.4%)
+Session end: 2025-11-14 22:09:35
+Total session time: 245.0s (4.1 minutes)
+Log file: /path/to/logs/processing_20251114_220530.log
+
+LOG FILES (DETAILED):
+
+All events logged to:
+- logs/processing_20251114_220530.log (main log, all events)
+- logs/errors_20251114.log (errors only, daily)
+
+Check logs for:
+- Per-job start/success/failure with timestamps
+- GPU metrics every 30 seconds
+- Queue status (running/waiting/completed)
+- Parallelism adjustments
+- Error details
+
+================================================================================
+GPU HEALTH MONITORING
+================================================================================
+
+The system automatically monitors GPU and adjusts parallelism:
+
+HEALTHY GPU (<70°C):
+- 4 parallel jobs (or your --max-parallel setting)
+- Full speed processing
+
+WARM GPU (70-80°C):
+- Reduces to 2 parallel jobs
+- Log warning: "GPU health: WARM - Adjusting parallelism: 4 -> 2"
+
+HOT GPU (>80°C or high util/memory):
+- Reduces to 1 job at a time
+- Log warning: "GPU health: CRITICAL - Adjusting parallelism: 2 -> 1"
+
+COOLING DOWN:
+- Automatically increases parallelism when GPU cools
+- Log warning: "GPU health: HEALTHY - Adjusting parallelism: 2 -> 4"
+
+MACOS (NO GPU):
+- Warning logged: "nvidia-smi not available - GPU monitoring disabled"
+- Uses default parallelism (no dynamic adjustment)
+- Everything else works normally
+
+================================================================================
+COMMON SCENARIOS
+================================================================================
+
+SCENARIO 1: Daily Production Run (10 cameras, overnight)
+
+cd /path/to/production/RTX_3060/scripts
+nohup python3 process_videos_orchestrator.py > /dev/null 2>&1 &
+
+# Check status
+tail -f ../logs/processing_*.log | grep "Queue:"
+
+# Check for errors
+cat ../logs/errors_$(date +%Y%m%d).log
+
+SCENARIO 2: Testing New Camera Configurations
+
+python3 process_videos_orchestrator.py \
+  --cameras camera_35 \
+  --duration 60 \
+  --log-level DEBUG
+
+# Then check logs/processing_*.log for details
+
+SCENARIO 3: Conservative GPU Usage (Restaurant Hours)
+
+python3 process_videos_orchestrator.py \
+  --max-parallel 1 \
+  --gpu-temp-limit 70
+
+# Minimal GPU load, safer during business hours
+
+SCENARIO 4: After Adding New Cameras
+
+# First, list what will be processed
+python3 process_videos_orchestrator.py --list
+
+# Then process with test duration
+python3 process_videos_orchestrator.py --duration 30
+
+# If successful, full run
+python3 process_videos_orchestrator.py
+
+================================================================================
+MONITORING DURING PROCESSING
+================================================================================
+
+WATCH GPU IN REAL-TIME:
+
+watch -n 1 nvidia-smi
+
+# Shows live GPU metrics while processing
+
+WATCH LOG FILE:
+
+tail -f ../logs/processing_*.log
+
+# Shows live processing events
+
+WATCH QUEUE STATUS:
+
+tail -f ../logs/processing_*.log | grep "Queue:"
+
+# Shows only queue status updates (every 30s)
+
+WATCH FOR ERRORS:
+
+tail -f ../logs/errors_*.log
+
+# Shows errors as they occur
+
+CHECK PROGRESS:
+
+grep "SUCCESS\|FAILED" ../logs/processing_*.log | wc -l
+
+# Count completed jobs
+
+================================================================================
+POST-PROCESSING ANALYSIS
+================================================================================
+
+CALCULATE AVERAGE PROCESSING TIME:
+
+grep "SUCCESS" ../logs/processing_20251114_220530.log | \
+  grep -oP "Duration: \K\d+\.\d+" | \
+  awk '{s+=$1; c++} END {print s/c " seconds average"}'
+
+FIND SLOWEST VIDEOS:
+
+grep "SUCCESS" ../logs/processing_20251114_220530.log | \
+  sort -t: -k4 -rn | head -10
+
+TRACK GPU TEMPERATURE TREND:
+
+grep "GPU:" ../logs/processing_20251114_220530.log | \
+  grep -oP "\d+°C"
+
+LIST FAILED JOBS:
+
+grep "FAILED" ../logs/processing_20251114_220530.log
+
+COUNT JOBS BY CAMERA:
+
+grep "START:" ../logs/processing_20251114_220530.log | \
+  grep -oP "camera_\d+" | sort | uniq -c
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+PROBLEM: Script not finding videos
+
+CHECK:
+1. Videos directory exists: ls -la ../videos
+2. Videos follow naming: camera_ID_YYYYMMDD_HHMMSS.mp4
+3. Videos in correct structure: videos/YYYYMMDD/camera_ID/
+
+SOLUTION:
+python3 process_videos_orchestrator.py --list
+
+PROBLEM: GPU temperature too high
+
+CHECK:
+tail -f ../logs/processing_*.log | grep "GPU:"
+
+SOLUTION:
+python3 process_videos_orchestrator.py --max-parallel 2 --gpu-temp-limit 75
+
+PROBLEM: Jobs failing with errors
+
+CHECK:
+cat ../logs/errors_$(date +%Y%m%d).log
+
+SOLUTION:
+python3 process_videos_orchestrator.py --log-level DEBUG
+
+PROBLEM: Logs directory filling up
+
+CHECK:
+du -sh ../logs
+
+SOLUTION:
+# Automatic cleanup happens on startup (keeps 14 days)
+# Manual cleanup:
+find ../logs -name "*.log" -mtime +14 -delete
+
+PROBLEM: No GPU monitoring on macOS
+
+CHECK:
+nvidia-smi
+# If not found: Expected on macOS
+
+SOLUTION:
+# System works fine, just uses default parallelism
+# This is normal for development on Mac
+
+================================================================================
+CRON JOB SETUP (OVERNIGHT PROCESSING)
+================================================================================
+
+PRODUCTION SCHEDULE:
+- Restaurant hours: 11 AM - 9 PM
+- Processing window: 11 PM - 6 AM (7 hours)
+
+CRON ENTRY:
+
+# /etc/crontab or crontab -e
+0 23 * * * cd /path/to/production/RTX_3060/scripts && python3 process_videos_orchestrator.py > /dev/null 2>&1
+
+VERIFICATION:
+
+# Check if processing is running
+ps aux | grep process_videos_orchestrator
+
+# Check latest log
+ls -lt ../logs/processing_*.log | head -1
+
+# Monitor progress
+tail -f ../logs/processing_*.log | grep "Queue:"
+
+================================================================================
+PERFORMANCE EXPECTATIONS
+================================================================================
+
+BASED ON RTX 3060 BENCHMARKS:
+
+Single video (1 hour):
+- Processing time: ~18.5 minutes (3.24x real-time at 5fps)
+- GPU utilization: ~71%
+- Memory usage: ~40-50%
+
+10 cameras × 10 hours = 100 hours footage:
+- Sequential: ~30.8 hours
+- 4 parallel: ~7.7 hours (fits in overnight window!)
+- 2 parallel: ~15.4 hours (conservative mode)
+
+WITH GPU QUEUE MANAGEMENT:
+- Adapts to temperature
+- Prevents thermal throttling
+- Maintains optimal throughput
+- Reduces risk of GPU damage
+
+================================================================================
+FILES REFERENCE
+================================================================================
+
+SCRIPT:
+/production/RTX_3060/scripts/process_videos_orchestrator.py
+
+LOGS:
+/production/RTX_3060/logs/processing_YYYYMMDD_HHMMSS.log
+/production/RTX_3060/logs/errors_YYYYMMDD.log
+
+DOCUMENTATION:
+/production/RTX_3060/scripts/EXAMPLE_LOG_OUTPUT.txt
+/production/RTX_3060/scripts/GPU_QUEUE_UPGRADE_SUMMARY.txt
+/production/RTX_3060/scripts/QUICK_START_GPU_QUEUE.txt (this file)
+/production/RTX_3060/CLAUDE.md
+
+VIDEOS:
+/production/RTX_3060/videos/YYYYMMDD/camera_ID/camera_ID_YYYYMMDD_HHMMSS.mp4
+
+CONFIG:
+/production/RTX_3060/scripts/table_region_config.json
+/production/RTX_3060/scripts/table_region_config_camera_ID.json (per-camera)
+
+================================================================================
+SUPPORT
+================================================================================
+
+For questions or issues:
+1. Check EXAMPLE_LOG_OUTPUT.txt for log format examples
+2. Check GPU_QUEUE_UPGRADE_SUMMARY.txt for technical details
+3. Check logs/errors_YYYYMMDD.log for error messages
+4. Enable --log-level DEBUG for verbose troubleshooting
+
+Author: ASEOfSmartICE Team
+Version: 2.0.0
+Updated: 2025-11-14

@@ -1,0 +1,68 @@
+# NTP Time Synchronization Cron Configuration
+# Version 1.0
+#
+# This file documents the cron configuration for hourly NTP verification
+# Install this by running: setup_ntp.sh (automatically handles installation)
+#
+# Manual installation:
+# 1. Edit crontab: sudo crontab -e
+# 2. Add the line below:
+# 3. Save and exit
+#
+# Cron job format:
+# minute hour day_of_month month day_of_week command
+
+# Hourly NTP verification (every hour at minute 00)
+# Runs: 00:00, 01:00, 02:00, ..., 23:00 every day
+# Output: Appended to /var/log/rtx3060/monitoring/time_sync.log
+# Alerts: Check log for [ERROR] or [FAIL] messages
+0 * * * * /path/to/production/RTX_3060/scripts/verify_time_sync.sh >> /var/log/rtx3060/monitoring/time_sync.log 2>&1
+
+# Alternative: Run every 30 minutes (for more frequent checks)
+# 0,30 * * * * /path/to/production/RTX_3060/scripts/verify_time_sync.sh >> /var/log/rtx3060/monitoring/time_sync.log 2>&1
+
+# Alternative: Run every 15 minutes (high frequency monitoring)
+# */15 * * * * /path/to/production/RTX_3060/scripts/verify_time_sync.sh >> /var/log/rtx3060/monitoring/time_sync.log 2>&1
+
+# Log rotation configuration (optional)
+# To prevent log file from growing too large, add to logrotate:
+# File: /etc/logrotate.d/rtx3060-time-sync
+# /var/log/rtx3060/monitoring/time_sync.log {
+#     weekly
+#     rotate 4
+#     compress
+#     delaycompress
+#     notifempty
+#     create 0644 root root
+# }
+
+# To install cron job manually:
+# 1. Copy the script to the production location
+# 2. Make it executable: chmod +x verify_time_sync.sh
+# 3. Run setup: sudo ./setup_ntp.sh
+# 4. Verify cron job: sudo crontab -l
+
+# To check cron job execution:
+# - On macOS: log stream --level debug --predicate 'process == "cron"'
+# - On Linux: grep CRON /var/log/syslog | tail -20
+# - Check logs: tail -f /var/log/rtx3060/monitoring/time_sync.log
+
+# Troubleshooting:
+# 1. Cron job not running?
+#    - Check: sudo systemctl restart crond (or cron on macOS)
+#    - Verify: sudo crontab -l
+#    - Check logs: sudo journalctl -u cron.service -n 50
+
+# 2. Permission denied?
+#    - Ensure script is owned by correct user
+#    - Ensure script is executable: chmod +x verify_time_sync.sh
+#    - Ensure log directory exists: mkdir -p /var/log/rtx3060/monitoring
+
+# 3. Script not found?
+#    - Use absolute path in cron job
+#    - Check: ls -l /path/to/production/RTX_3060/scripts/verify_time_sync.sh
+
+# 4. NTP sync failing?
+#    - Check NTP service: systemctl status systemd-timesyncd
+#    - Check timezone: timedatectl status
+#    - Manual test: ./verify_time_sync.sh --verbose

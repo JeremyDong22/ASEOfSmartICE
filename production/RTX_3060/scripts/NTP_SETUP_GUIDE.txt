@@ -1,0 +1,409 @@
+================================================================================
+NTP TIME SYNCHRONIZATION SETUP GUIDE
+RTX 3060 Production Deployment - Beijing Timezone (Asia/Shanghai)
+Version 1.0
+================================================================================
+
+OVERVIEW
+--------
+This guide provides instructions for setting up time synchronization on the
+RTX 3060 Linux machine deployed in the restaurant. The system is configured
+to synchronize with Chinese NTP servers for reliable timekeeping in Beijing
+timezone (Asia/Shanghai).
+
+COMPONENTS
+----------
+1. setup_ntp.sh           - One-time setup script (run once on deployment)
+2. verify_time_sync.sh    - Hourly verification script (automated via cron)
+3. ntp_cron_config.txt    - Reference cron configuration
+4. NTP_SETUP_GUIDE.txt    - This documentation
+
+QUICK START
+-----------
+On the Linux RTX 3060 machine:
+
+1. Copy scripts to production location (if not already there):
+   cp setup_ntp.sh verify_time_sync.sh /path/to/production/RTX_3060/scripts/
+
+2. Make scripts executable:
+   chmod +x /path/to/production/RTX_3060/scripts/setup_ntp.sh
+   chmod +x /path/to/production/RTX_3060/scripts/verify_time_sync.sh
+
+3. Run setup (requires root access):
+   sudo ./setup_ntp.sh
+
+4. Verify installation:
+   ./verify_time_sync.sh
+
+DETAILED SETUP PROCESS
+----------------------
+
+Step 1: Initial Setup (Run Once)
+=====================================
+Command:
+  sudo /path/to/production/RTX_3060/scripts/setup_ntp.sh
+
+What it does:
+  - Verifies system dependencies (systemd, timedatectl)
+  - Sets system timezone to Asia/Shanghai
+  - Configures /etc/systemd/timesyncd.conf with Chinese NTP servers
+  - Enables systemd-timesyncd service
+  - Creates /var/log/rtx3060/monitoring/ directory for logs
+  - Installs hourly cron job for automatic verification
+  - Runs initial verification to confirm setup
+
+Expected output:
+  [OK] Timezone set using timedatectl
+  [OK] NTP configuration created
+  [OK] systemd-timesyncd is running
+  [OK] Log directory created
+  [OK] Cron job installed for user root
+  [OK] NTP setup verified successfully!
+
+Step 2: Verify Installation
+=====================================
+Command:
+  /path/to/production/RTX_3060/scripts/verify_time_sync.sh
+
+What it does:
+  - Checks timezone is Asia/Shanghai
+  - Verifies NTP synchronization is enabled
+  - Tests connectivity to all Chinese NTP servers
+  - Checks time offset is within acceptable range (< 5 seconds)
+  - Logs results to /var/log/rtx3060/monitoring/time_sync.log
+
+Expected output:
+  [✓] Timezone: Asia/Shanghai
+  [✓] NTP Synchronization: enabled
+  [✓] NTP Server ntp.aliyun.com: online
+  [✓] NTP Server ntp1.aliyun.com: online
+  [✓] NTP Server time1.cloud.tencent.com: online
+  [✓] Time Offset: 0.234 seconds
+  [OK] Time synchronization is healthy
+
+AUTOMATED VERIFICATION
+----------------------
+After setup_ntp.sh completes, a cron job is installed to verify time
+synchronization automatically every hour.
+
+Cron Schedule:
+  Time: Every hour at minute 00 (00:00, 01:00, 02:00, etc.)
+  Script: /path/to/production/RTX_3060/scripts/verify_time_sync.sh
+  Log: /var/log/rtx3060/monitoring/time_sync.log
+  User: root
+
+To view cron job:
+  sudo crontab -l
+
+To modify cron schedule (if desired):
+  sudo crontab -e
+
+  Examples:
+    0 * * * *     - Every hour (current)
+    0,30 * * * *  - Every 30 minutes
+    */15 * * * *  - Every 15 minutes (high frequency)
+
+MONITORING & TROUBLESHOOTING
+----------------------------
+
+Check Verification Logs
+========================
+Location: /var/log/rtx3060/monitoring/time_sync.log
+
+View recent logs:
+  tail -f /var/log/rtx3060/monitoring/time_sync.log
+
+View all logs since last restart:
+  cat /var/log/rtx3060/monitoring/time_sync.log
+
+Log Format:
+  2025-11-14 20:30:00 [INFO] Timezone: Asia/Shanghai ✓
+  2025-11-14 20:30:00 [INFO] NTP enabled: yes ✓
+  2025-11-14 20:30:00 [INFO] Time offset: 0.234 seconds ✓
+  2025-11-14 20:30:00 [OK] Time synchronization healthy
+
+Check NTP Service Status
+========================
+Command:
+  timedatectl status
+  systemctl status systemd-timesyncd
+
+Example output:
+  Local time: Wed 2025-11-14 20:35:00 CST
+  Universal time: Wed 2025-11-14 12:35:00 UTC
+  RTC time: Wed 2025-11-14 12:35:00
+  Time zone: Asia/Shanghai (CST, +0800)
+  NTP enabled: yes
+  NTP synchronized: yes
+
+Check Time Offset
+=================
+Command:
+  timedatectl show-timesync --no-pager
+
+Example output:
+  ReferenceTimeServer=ntp.aliyun.com
+  Frequency=-0.002ppm
+  AdjustmentType=step
+  NTPMessage={ Leap=0, Version=4, Mode=4, Stratum=2, Precision=-24, RootDelay=17.456ms, RootDispersion=38.391ms, Reference=C342F102, OriginateTimestamp=Wed 2025-11-14 12:34:50.123456 UTC, ReceiveTimestamp=Wed 2025-11-14 12:34:50.234567 UTC, TransmitTimestamp=Wed 2025-11-14 12:34:50.345678 UTC, DestinationTimestamp=Wed 2025-11-14 12:34:50.456789 UTC, Leap=0, Version=4, Mode=4, Stratum=2 }
+  NextAdjustmentStep=0
+  AdjustmentStepDirection=0
+
+Test NTP Server Connectivity
+=============================
+Command:
+  ping ntp.aliyun.com
+  ping ntp1.aliyun.com
+  ping time1.cloud.tencent.com
+
+Should show responses (< 100ms latency preferred):
+  PING ntp.aliyun.com (140.205.5.97) 56(84) bytes of data
+  64 bytes from 140.205.5.97: icmp_seq=1 ttl=52 time=45.3 ms
+
+Troubleshooting Common Issues
+=============================
+
+Issue 1: Timezone is not Asia/Shanghai
+------
+Symptoms:
+  [✗] Timezone: UTC (expected Asia/Shanghai)
+
+Solution:
+  sudo timedatectl set-timezone Asia/Shanghai
+
+Verify:
+  timedatectl status | grep 'Time zone'
+
+Issue 2: NTP Synchronization is disabled
+------
+Symptoms:
+  [✗] NTP Synchronization: not enabled
+  NTP enabled: no
+
+Solution:
+  sudo systemctl start systemd-timesyncd
+  sudo systemctl enable systemd-timesyncd
+
+Verify:
+  sudo systemctl status systemd-timesyncd
+  timedatectl status | grep 'NTP enabled'
+
+Issue 3: NTP Servers are offline
+------
+Symptoms:
+  [✗] NTP Server ntp.aliyun.com: offline
+  All servers showing offline
+
+Possible causes:
+  - Network connectivity issue
+  - Firewall blocking NTP port 123
+  - ISP/router blocking NTP traffic
+
+Solutions:
+  a) Check network connectivity:
+     ping 8.8.8.8  # Google's DNS
+     ping baidu.com  # Chinese site
+
+  b) Check NTP port:
+     telnet ntp.aliyun.com 123  (should fail - NTP uses UDP, not TCP)
+     nc -u ntp.aliyun.com 123   (better check)
+
+  c) Check firewall:
+     sudo ufw status  # If using UFW
+     Allow UDP port 123: sudo ufw allow 123/udp
+
+  d) Wait and retry:
+     NTP servers may be temporarily unavailable
+     Run verification again after 5 minutes
+
+Issue 4: Time Offset exceeds 5 seconds
+------
+Symptoms:
+  [✗] Time offset: 12.345 seconds (threshold: 5s)
+
+Cause:
+  System clock has drifted too far from NTP servers
+
+Solution:
+  a) Force NTP synchronization:
+     sudo systemctl restart systemd-timesyncd
+     sleep 5
+     timedatectl show-timesync --no-pager | grep 'RTC time'
+
+  b) If still failing, check system clock:
+     timedatectl status | grep 'RTC time'
+
+  c) If RTC battery is failing:
+     Consider hardware replacement
+
+Issue 5: Cron job not running
+------
+Symptoms:
+  No new entries in /var/log/rtx3060/monitoring/time_sync.log
+  Verification script not running hourly
+
+Debug steps:
+  a) Check cron service is running:
+     sudo systemctl status crond  # Linux
+     sudo systemctl status cron   # Some Linux
+     # macOS: typically doesn't use systemctl
+
+  b) Verify cron job is installed:
+     sudo crontab -l | grep verify_time_sync
+
+  c) Check cron logs:
+     sudo journalctl -u crond -n 50  # Recent cron logs
+     grep CRON /var/log/syslog | tail -20
+
+  d) Check script permissions:
+     ls -l /path/to/production/RTX_3060/scripts/verify_time_sync.sh
+     Should show: -rwxr-xr-x (755 permissions)
+
+  e) Test cron manually:
+     /path/to/production/RTX_3060/scripts/verify_time_sync.sh
+     Should run without errors
+
+  f) Check script absolute path in crontab:
+     Make sure crontab contains full absolute path, not relative path
+
+Issue 6: Permission denied when running setup
+------
+Symptoms:
+  [ERROR] This script must be run as root or with sudo
+
+Solution:
+  Run setup with sudo:
+  sudo /path/to/production/RTX_3060/scripts/setup_ntp.sh
+
+SCRIPT OPTIONS
+--------------
+
+verify_time_sync.sh Options:
+  --verbose  Show detailed output including debug information
+  --test     Test mode for Mac (no actual systemd calls, mock data)
+
+Examples:
+  ./verify_time_sync.sh                 # Normal verification
+  ./verify_time_sync.sh --verbose       # Detailed output
+  ./verify_time_sync.sh --test          # Test mode (Mac testing)
+
+setup_ntp.sh Options:
+  --test         Test mode for Mac (dry-run, no actual changes)
+  --verify-only  Skip setup, just run verification
+
+Examples:
+  sudo ./setup_ntp.sh                   # Full setup
+  sudo ./setup_ntp.sh --test            # Test mode
+  ./setup_ntp.sh --verify-only          # Verify only
+
+MAINTENANCE
+-----------
+
+Log Rotation
+============
+Over time, the log file /var/log/rtx3060/monitoring/time_sync.log will grow.
+
+Option 1: Manual cleanup
+  sudo rm /var/log/rtx3060/monitoring/time_sync.log
+
+Option 2: Automatic rotation with logrotate
+  Create file: /etc/logrotate.d/rtx3060-time-sync
+
+  Content:
+  /var/log/rtx3060/monitoring/time_sync.log {
+      weekly
+      rotate 4
+      compress
+      delaycompress
+      notifempty
+      create 0644 root root
+  }
+
+  Install:
+  sudo mv /tmp/rtx3060-time-sync /etc/logrotate.d/
+  sudo logrotate -f /etc/logrotate.d/rtx3060-time-sync  # Test rotation
+
+Verifying Setup Periodically
+=============================
+Every week, run manual verification to ensure time sync is healthy:
+
+  /path/to/production/RTX_3060/scripts/verify_time_sync.sh
+
+Check results in log:
+  tail -20 /var/log/rtx3060/monitoring/time_sync.log
+
+Integration with Other Systems
+===============================
+The time synchronization setup ensures:
+  - Video timestamps are accurate for correlating with camera feeds
+  - Database timestamps are consistent across tables
+  - Log timestamps are correct for debugging
+  - Scheduled tasks run at correct times
+
+DEPLOYMENT CHECKLIST
+-------------------
+Before deploying to production:
+
+[ ] Copy scripts to /path/to/production/RTX_3060/scripts/
+[ ] Make scripts executable (chmod +x)
+[ ] Test on staging machine first:
+    - Run: ./setup_ntp.sh --test
+    - Run: ./verify_time_sync.sh --verbose
+[ ] Deploy to production:
+    - Run: sudo ./setup_ntp.sh
+[ ] Verify after 1 hour:
+    - Check cron job: sudo crontab -l
+    - Check logs: tail /var/log/rtx3060/monitoring/time_sync.log
+[ ] Monitor for 24 hours:
+    - Check hourly log entries
+    - Verify no [ERROR] messages
+
+REVERTING SETUP
+---------------
+If you need to remove the NTP setup:
+
+1. Remove cron job:
+   sudo crontab -e
+   # Delete the line with verify_time_sync.sh
+   # Save and exit
+
+2. Restore original timezone (if needed):
+   sudo timedatectl set-timezone UTC
+
+3. Stop NTP service:
+   sudo systemctl stop systemd-timesyncd
+   sudo systemctl disable systemd-timesyncd
+
+4. Delete log directory (optional):
+   sudo rm -rf /var/log/rtx3060/monitoring
+
+REFERENCES
+----------
+NTP Servers:
+  - Alibaba Cloud NTP: ntp.aliyun.com, ntp1.aliyun.com
+  - Tencent Cloud NTP: time1.cloud.tencent.com
+  - Documentation: https://www.aliyun.com/product/ntp
+
+systemd-timesyncd:
+  - Manual: man systemd-timesyncd
+  - Manual: man timedatectl
+  - Manual: man systemd.dbus
+
+Linux Time Synchronization:
+  - NTP: https://tools.ietf.org/html/rfc5905
+  - SNTP: https://tools.ietf.org/html/rfc4330
+
+SUPPORT
+-------
+For issues or questions:
+  1. Check troubleshooting section above
+  2. Review logs: tail -f /var/log/rtx3060/monitoring/time_sync.log
+  3. Run verification with verbose flag: ./verify_time_sync.sh --verbose
+  4. Check systemd status: sudo systemctl status systemd-timesyncd
+
+================================================================================
+Document: NTP_SETUP_GUIDE.txt
+Version: 1.0
+Last Updated: 2025-11-14
+Compatibility: Linux with systemd (Ubuntu 20.04+, Debian 11+, etc.)
+================================================================================

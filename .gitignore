@@ -94,3 +94,35 @@ package-lock.json
 
 # MCP Configuration (contains sensitive tokens)
 claude_mcp_config.json
+
+# ============================================================================
+# Production RTX 3060 System
+# ============================================================================
+
+# Videos and results folders (large files, not tracked)
+production/RTX_3060/videos/**/*
+production/RTX_3060/results/**/*
+
+# Keep directory structure (allow empty directories to be tracked)
+!production/RTX_3060/videos/.gitkeep
+!production/RTX_3060/results/.gitkeep
+
+# Database files (data not tracked, but schema files are)
+production/RTX_3060/db/*.db
+production/RTX_3060/db/screenshots/**/*
+!production/RTX_3060/db/screenshots/.gitkeep
+
+# Logs (not tracked)
+production/RTX_3060/logs/**/*
+!production/RTX_3060/logs/.gitkeep
+
+# Backups (not tracked)
+production/RTX_3060/backups/**/*
+!production/RTX_3060/backups/.gitkeep
+
+# IMPORTANT: Allow models in production folder (override global *.pt rule)
+!production/RTX_3060/models/*.pt
+!production/RTX_3060/models/*.pth
+
+# Camera config (may contain sensitive IPs/passwords)
+production/RTX_3060/scripts/cameras_config.json

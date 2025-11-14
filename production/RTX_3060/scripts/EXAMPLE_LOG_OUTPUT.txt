@@ -1,0 +1,224 @@
+================================================================================
+EXAMPLE LOG OUTPUT - GPU Queue Management System v2.0.0
+================================================================================
+
+This file demonstrates the logging format and structure for the upgraded
+process_videos_orchestrator.py with GPU queue management.
+
+LOG FILES CREATED:
+- logs/processing_20251114_220530.log (main processing log)
+- logs/errors_20251114.log (errors only, shared across sessions on same day)
+
+================================================================================
+MAIN LOG FORMAT (logs/processing_20251114_220530.log)
+================================================================================
+
+2025-11-14 22:05:30 | INFO     | Logging initialized: /Users/jeremydong/Desktop/Smartice/ASEOfSmartICE/production/RTX_3060/logs/processing_20251114_220530.log
+2025-11-14 22:05:30 | INFO     | Error log: /Users/jeremydong/Desktop/Smartice/ASEOfSmartICE/production/RTX_3060/logs/errors_20251114.log
+2025-11-14 22:05:30 | INFO     | Python version: 3.10.8 (main, Nov 24 2022, 14:13:03) [GCC 11.2.0]
+2025-11-14 22:05:30 | INFO     | Platform: Linux 5.15.0-88-generic
+2025-11-14 22:05:30 | INFO     | Script directory: /Users/jeremydong/Desktop/Smartice/ASEOfSmartICE/production/RTX_3060/scripts
+2025-11-14 22:05:30 | INFO     | Scanning for videos in: /Users/jeremydong/Desktop/Smartice/ASEOfSmartICE/production/RTX_3060/videos
+2025-11-14 22:05:30 | INFO     | ================================================================================
+2025-11-14 22:05:30 | INFO     | MULTI-CAMERA VIDEO PROCESSING WITH GPU QUEUE MANAGEMENT
+2025-11-14 22:05:30 | INFO     | ================================================================================
+2025-11-14 22:05:30 | INFO     | Cameras: 3
+2025-11-14 22:05:30 | INFO     | Total jobs: 12
+2025-11-14 22:05:30 | INFO     | Max parallel jobs: 4
+2025-11-14 22:05:30 | INFO     | GPU temp limit: 80°C
+2025-11-14 22:05:30 | INFO     | Processing duration: 60s per video
+2025-11-14 22:05:30 | INFO     | ================================================================================
+2025-11-14 22:05:30 | INFO     | camera_35: 5 video(s)
+2025-11-14 22:05:30 | INFO     | camera_22: 4 video(s)
+2025-11-14 22:05:30 | INFO     | camera_18: 3 video(s)
+2025-11-14 22:05:30 | INFO     | ================================================================================
+2025-11-14 22:05:30 | INFO     | Starting processing...
+2025-11-14 22:05:30 | INFO     | ================================================================================
+2025-11-14 22:05:30 | INFO     | Starting 4 worker threads
+2025-11-14 22:05:30 | INFO     | GPU monitoring thread started (interval: 30s)
+
+# Initial GPU state check
+2025-11-14 22:05:30 | INFO     | GPU: 62°C | Util: 45% | Mem: 3248MB / 12288MB (26.4%)
+2025-11-14 22:05:30 | INFO     | Queue: 0 running | 12 waiting | 0 completed | 0 failed | Max parallel: 4
+
+# First batch of jobs start (4 parallel jobs on healthy GPU)
+2025-11-14 22:05:31 | INFO     | [camera_35] START: camera_35_20251114_100000.mp4
+2025-11-14 22:05:31 | INFO     | [camera_22] START: camera_22_20251114_100000.mp4
+2025-11-14 22:05:31 | INFO     | [camera_18] START: camera_18_20251114_100000.mp4
+2025-11-14 22:05:31 | INFO     | [camera_35] START: camera_35_20251114_110000.mp4
+
+# Job completions
+2025-11-14 22:06:45 | INFO     | [camera_35] SUCCESS: camera_35_20251114_100000.mp4 | Duration: 74.2s
+2025-11-14 22:06:46 | INFO     | [camera_35] START: camera_35_20251114_120000.mp4
+2025-11-14 22:06:52 | INFO     | [camera_22] SUCCESS: camera_22_20251114_100000.mp4 | Duration: 81.1s
+2025-11-14 22:06:52 | INFO     | [camera_22] START: camera_22_20251114_110000.mp4
+
+# GPU monitoring check (30s interval)
+2025-11-14 22:07:00 | INFO     | GPU: 68°C | Util: 72% | Mem: 5892MB / 12288MB (48.0%)
+2025-11-14 22:07:00 | INFO     | Queue: 4 running | 6 waiting | 2 completed | 0 failed | Max parallel: 4
+
+2025-11-14 22:07:15 | INFO     | [camera_18] SUCCESS: camera_18_20251114_100000.mp4 | Duration: 104.3s
+2025-11-14 22:07:15 | INFO     | [camera_18] START: camera_18_20251114_110000.mp4
+2025-11-14 22:07:23 | INFO     | [camera_35] SUCCESS: camera_35_20251114_110000.mp4 | Duration: 112.1s
+2025-11-14 22:07:23 | INFO     | [camera_35] START: camera_35_20251114_130000.mp4
+
+# GPU temperature rises - system adjusts parallelism
+2025-11-14 22:07:30 | INFO     | GPU: 72°C | Util: 81% | Mem: 6124MB / 12288MB (49.8%)
+2025-11-14 22:07:30 | WARNING  | GPU health: WARM - Adjusting parallelism: 4 -> 2
+2025-11-14 22:07:30 | INFO     | Queue: 4 running | 4 waiting | 4 completed | 0 failed | Max parallel: 2
+
+# Jobs continue at reduced parallelism
+2025-11-14 22:07:48 | INFO     | [camera_22] SUCCESS: camera_22_20251114_110000.mp4 | Duration: 56.2s
+2025-11-14 22:07:48 | INFO     | [camera_22] START: camera_22_20251114_120000.mp4
+2025-11-14 22:08:00 | INFO     | GPU: 71°C | Util: 76% | Mem: 5956MB / 12288MB (48.5%)
+2025-11-14 22:08:00 | INFO     | Queue: 2 running | 3 waiting | 5 completed | 0 failed | Max parallel: 2
+
+# Example error scenario
+2025-11-14 22:08:15 | ERROR    | [camera_18] FAILED: camera_18_20251114_110000.mp4 | Duration: 60.1s
+2025-11-14 22:08:15 | ERROR    | [camera_18] Error output: FileNotFoundError: Config file not found: table_region_config_camera_18.json
+2025-11-14 22:08:15 | INFO     | [camera_18] START: camera_18_20251114_120000.mp4
+
+# GPU cools down - parallelism restored
+2025-11-14 22:08:30 | INFO     | GPU: 68°C | Util: 65% | Mem: 5312MB / 12288MB (43.2%)
+2025-11-14 22:08:30 | WARNING  | GPU health: HEALTHY - Adjusting parallelism: 2 -> 4
+2025-11-14 22:08:30 | INFO     | Queue: 2 running | 3 waiting | 5 completed | 1 failed | Max parallel: 4
+
+# Remaining jobs complete
+2025-11-14 22:08:42 | INFO     | [camera_35] SUCCESS: camera_35_20251114_130000.mp4 | Duration: 79.3s
+2025-11-14 22:08:42 | INFO     | [camera_35] START: camera_35_20251114_140000.mp4
+2025-11-14 22:08:55 | INFO     | [camera_22] SUCCESS: camera_22_20251114_120000.mp4 | Duration: 67.1s
+2025-11-14 22:08:55 | INFO     | [camera_22] START: camera_22_20251114_130000.mp4
+2025-11-14 22:09:00 | INFO     | GPU: 66°C | Util: 58% | Mem: 4928MB / 12288MB (40.1%)
+2025-11-14 22:09:00 | INFO     | Queue: 3 running | 0 waiting | 7 completed | 1 failed | Max parallel: 4
+
+2025-11-14 22:09:12 | INFO     | [camera_18] SUCCESS: camera_18_20251114_120000.mp4 | Duration: 57.2s
+2025-11-14 22:09:28 | INFO     | [camera_35] SUCCESS: camera_35_20251114_140000.mp4 | Duration: 46.3s
+2025-11-14 22:09:35 | INFO     | [camera_22] SUCCESS: camera_22_20251114_130000.mp4 | Duration: 40.1s
+
+# Final statistics
+2025-11-14 22:09:35 | INFO     | ================================================================================
+2025-11-14 22:09:35 | INFO     | PROCESSING COMPLETE
+2025-11-14 22:09:35 | INFO     | ================================================================================
+2025-11-14 22:09:35 | INFO     | Total jobs: 12
+2025-11-14 22:09:35 | INFO     | Completed: 11
+2025-11-14 22:09:35 | INFO     | Failed: 1
+2025-11-14 22:09:35 | INFO     | Success rate: 91.7%
+2025-11-14 22:09:35 | INFO     | Total time: 245.0s (4.1 minutes)
+2025-11-14 22:09:35 | INFO     | Avg time per job: 71.8s
+2025-11-14 22:09:35 | INFO     | ================================================================================
+2025-11-14 22:09:35 | INFO     | Final GPU state:
+2025-11-14 22:09:35 | INFO     | GPU: 64°C | Util: 42% | Mem: 3856MB / 12288MB (31.4%)
+2025-11-14 22:09:35 | INFO     | Session end: 2025-11-14 22:09:35
+2025-11-14 22:09:35 | INFO     | Total session time: 245.0s (4.1 minutes)
+2025-11-14 22:09:35 | INFO     | Log file: /Users/jeremydong/Desktop/Smartice/ASEOfSmartICE/production/RTX_3060/logs/processing_20251114_220530.log
+
+
+================================================================================
+ERROR LOG FORMAT (logs/errors_20251114.log)
+================================================================================
+
+2025-11-14 22:08:15 | ERROR    | [camera_18] FAILED: camera_18_20251114_110000.mp4 | Duration: 60.1s
+2025-11-14 22:08:15 | ERROR    | [camera_18] Error output: FileNotFoundError: Config file not found: table_region_config_camera_18.json
+
+
+================================================================================
+MACOS GRACEFUL DEGRADATION (no nvidia-smi available)
+================================================================================
+
+2025-11-14 22:05:30 | INFO     | Logging initialized: /Users/jeremydong/Desktop/Smartice/ASEOfSmartICE/production/RTX_3060/logs/processing_20251114_220530.log
+2025-11-14 22:05:30 | INFO     | Error log: /Users/jeremydong/Desktop/Smartice/ASEOfSmartICE/production/RTX_3060/logs/errors_20251114.log
+2025-11-14 22:05:30 | INFO     | Python version: 3.11.6 (main, Nov  2 2023, 04:39:43) [Clang 15.0.0]
+2025-11-14 22:05:30 | INFO     | Platform: Darwin 24.5.0
+2025-11-14 22:05:30 | INFO     | Script directory: /Users/jeremydong/Desktop/Smartice/ASEOfSmartICE/production/RTX_3060/scripts
+2025-11-14 22:05:30 | WARNING  | nvidia-smi not available - GPU monitoring disabled
+2025-11-14 22:05:30 | INFO     | Running on macOS - GPU monitoring not supported
+2025-11-14 22:05:30 | INFO     | Scanning for videos in: /Users/jeremydong/Desktop/Smartice/ASEOfSmartICE/production/RTX_3060/videos
+2025-11-14 22:05:30 | INFO     | ================================================================================
+2025-11-14 22:05:30 | INFO     | MULTI-CAMERA VIDEO PROCESSING WITH GPU QUEUE MANAGEMENT
+2025-11-14 22:05:30 | INFO     | ================================================================================
+2025-11-14 22:05:30 | INFO     | Cameras: 2
+2025-11-14 22:05:30 | INFO     | Total jobs: 4
+2025-11-14 22:05:30 | INFO     | Max parallel jobs: 4
+2025-11-14 22:05:30 | INFO     | GPU temp limit: 80°C
+2025-11-14 22:05:30 | INFO     | ================================================================================
+2025-11-14 22:05:30 | INFO     | Starting 4 worker threads
+2025-11-14 22:05:30 | INFO     | GPU monitoring thread started (interval: 30s)
+
+# Note: No GPU metrics logged on macOS, but queue continues to work
+2025-11-14 22:05:30 | INFO     | Queue: 0 running | 4 waiting | 0 completed | 0 failed | Max parallel: 4
+2025-11-14 22:05:31 | INFO     | [camera_35] START: camera_35_20251114_100000.mp4
+2025-11-14 22:05:31 | INFO     | [camera_22] START: camera_22_20251114_100000.mp4
+...
+
+
+================================================================================
+LOG EVENT TYPES REFERENCE
+================================================================================
+
+EVENT TYPE          | LOG LEVEL | FORMAT
+--------------------|-----------|------------------------------------------------
+Session Start       | INFO      | Session start: YYYY-MM-DD HH:MM:SS
+Session End         | INFO      | Session end: YYYY-MM-DD HH:MM:SS
+Job Start           | INFO      | [camera_id] START: video_filename.mp4
+Job Success         | INFO      | [camera_id] SUCCESS: video_filename.mp4 | Duration: XXs
+Job Failure         | ERROR     | [camera_id] FAILED: video_filename.mp4 | Duration: XXs
+Error Details       | ERROR     | [camera_id] Error output: error_message
+Exception           | ERROR     | [camera_id] EXCEPTION: video_filename.mp4 | exception_msg
+GPU Metrics         | INFO      | GPU: XX°C | Util: XX% | Mem: XXXXMB / XXXXMB (XX.X%)
+Queue Status        | INFO      | Queue: X running | X waiting | X completed | X failed | Max parallel: X
+Parallelism Change  | WARNING   | GPU health: STATUS - Adjusting parallelism: X -> X
+Statistics          | INFO      | Total jobs: X, Completed: X, Failed: X, Success rate: XX.X%
+                    |           | Total time: XXs (XX minutes), Avg time per job: XXs
+
+
+================================================================================
+LOG ANALYSIS TIPS
+================================================================================
+
+1. PERFORMANCE TRACKING
+   - Search for "SUCCESS" to extract all job durations
+   - Calculate average processing time per camera
+   - Identify slow videos (duration > threshold)
+
+2. GPU HEALTH MONITORING
+   - Track temperature trends over time
+   - Correlate GPU temp with parallelism adjustments
+   - Identify thermal throttling patterns
+
+3. ERROR DEBUGGING
+   - Check errors_YYYYMMDD.log for all failures
+   - Identify common error patterns (config missing, file not found, etc.)
+   - Track error rate by camera_id
+
+4. QUEUE EFFICIENCY
+   - Monitor "jobs waiting" to detect bottlenecks
+   - Track time between jobs to measure queue overhead
+   - Analyze parallelism changes vs throughput
+
+5. RESOURCE UTILIZATION
+   - Check GPU utilization during processing
+   - Monitor memory usage trends
+   - Identify optimal max_parallel setting
+
+
+================================================================================
+GREP EXAMPLES FOR LOG ANALYSIS
+================================================================================
+
+# Extract all successful job durations
+grep "SUCCESS" processing_20251114_220530.log | grep -oP "Duration: \K\d+\.\d+"
+
+# Find all GPU temperature readings
+grep "GPU:" processing_20251114_220530.log | grep -oP "\d+°C"
+
+# List all failed jobs
+grep "FAILED" processing_20251114_220530.log
+
+# Count jobs by camera
+grep "START:" processing_20251114_220530.log | grep -oP "camera_\d+" | sort | uniq -c
+
+# Track parallelism changes
+grep "Adjusting parallelism" processing_20251114_220530.log
+
+# Extract queue status snapshots
+grep "Queue:" processing_20251114_220530.log
