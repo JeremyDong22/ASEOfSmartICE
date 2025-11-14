@@ -43,8 +43,8 @@ import argparse
 
 # Script configuration
 SCRIPT_DIR = Path(__file__).parent.resolve()
-VIDEOS_DIR = SCRIPT_DIR.parent / "videos"
-CAMERAS_CONFIG = SCRIPT_DIR / "cameras_config.json"
+VIDEOS_DIR = SCRIPT_DIR.parent.parent / "videos"
+CAMERAS_CONFIG = SCRIPT_DIR.parent / "config" / "cameras_config.json"
 
 # Default camera configurations
 DEFAULT_CAMERAS = {

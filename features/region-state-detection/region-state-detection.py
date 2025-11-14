@@ -302,8 +302,8 @@ def draw_instruction_panel(frame, stage, points_count, service_areas_count):
     y_offset += 25
     instructions = [
         "Enter/Return - Complete current polygon (min 3 points)",
-        "Cmd+S / Ctrl+S - Save and finish",
-        "Cmd+Z / Ctrl+Z - Undo operation",
+        "Ctrl+S - Save and finish",
+        "Ctrl+Z - Undo operation",
         "R - Reset current polygon",
         "Q - Quit without saving"
     ]
@@ -344,10 +344,10 @@ def setup_division_and_service_areas(video_path):
     print("   1. Draw DIVISION area, press Enter to complete")
     print("   2. Draw SERVICE AREA(s), press Enter for each")
     print("      (Can draw multiple service areas)")
-    print("   3. Press Cmd+S / Ctrl+S when done with all service areas")
+    print("   3. Press Ctrl+S when done with all service areas")
     print("\n   Enter/Return - Complete current polygon")
-    print("   Cmd+S / Ctrl+S - Save and finish")
-    print("   Cmd+Z / Ctrl+Z - Undo operation")
+    print("   Ctrl+S - Save and finish")
+    print("   Ctrl+Z - Undo operation")
     print("   R - Reset current polygon")
     print("   Q - Quit without saving")
     print("="*70 + "\n")
@@ -407,8 +407,8 @@ def setup_division_and_service_areas(video_path):
         cv2.imshow('Region Setup', display_frame)
         key = cv2.waitKey(10) & 0xFF
 
-        # Get modifier keys (Cmd on Mac, Ctrl on Windows/Linux)
-        # OpenCV doesn't directly support Cmd key, so we'll use platform detection
+        # Get modifier keys (Ctrl key)
+        # OpenCV uses Ctrl key for shortcuts
         import platform
         is_mac = platform.system() == 'Darwin'
 
@@ -420,7 +420,7 @@ def setup_division_and_service_areas(video_path):
                     operation_history.append(('division', division_polygon))
                     print(f"\n✓ Division area completed with {len(division_polygon)} points")
                     print(f"   >> Switching to SERVICE AREAS")
-                    print(f"   (Draw service areas, press Cmd+S / Ctrl+S when done)")
+                    print(f"   (Draw service areas, press Ctrl+S when done)")
                     current_stage = 'service_area'
                     drawing_points = []
 
@@ -429,12 +429,12 @@ def setup_division_and_service_areas(video_path):
                     service_areas.append(new_service_area)
                     operation_history.append(('service_area', new_service_area))
                     print(f"\n✓ Service Area #{len(service_areas)} completed with {len(drawing_points)} points")
-                    print(f"   >> You can draw more service areas or press Cmd+S / Ctrl+S to finish")
+                    print(f"   >> You can draw more service areas or press Ctrl+S to finish")
                     drawing_points = []
             else:
                 print(f"\n✗ Need at least 3 points (currently {len(drawing_points)})")
 
-        # Cmd+S / Ctrl+S to finish service areas and save
+        # Ctrl+S to finish service areas and save
         elif key == 19:  # Ctrl+S
             if current_stage == 'service_area' and division_polygon is not None and len(service_areas) > 0:
                 # Save configuration
@@ -462,7 +462,7 @@ def setup_division_and_service_areas(video_path):
             elif len(service_areas) == 0:
                 print(f"\n⚠ You must draw at least one service area")
 
-        # Cmd+Z / Ctrl+Z to undo (advanced undo)
+        # Ctrl+Z to undo (advanced undo)
         elif key == 26:  # Ctrl+Z
             # Advanced undo - can undo points OR completed operations
             if len(drawing_points) > 0:

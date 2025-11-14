@@ -19,13 +19,13 @@ read -p "Select option (1-3): " choice
 
 case $choice in
     1)
-        if [ -f "../cameras_config.json" ]; then
+        if [ -f "../config/cameras_config.json" ]; then
             echo ""
             echo "Testing all cameras in cameras_config.json..."
-            python3 test_camera_connections.py --validate-config ../cameras_config.json
+            python3 test_camera_connections.py --validate-config ../config/cameras_config.json
         else
             echo ""
-            echo "Error: cameras_config.json not found"
+            echo "Error: cameras_config.json not found in config/"
             exit 1
         fi
         ;;

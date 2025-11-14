@@ -36,9 +36,9 @@ import sys
 
 # Script configuration
 SCRIPT_DIR = Path(__file__).parent.resolve()
-CAMERAS_CONFIG = SCRIPT_DIR / "cameras_config.json"
-TEST_VIDEOS_DIR = SCRIPT_DIR.parent / "tests" / "camera_test_videos"
-TEST_REPORT_DIR = SCRIPT_DIR.parent / "tests" / "camera_test_reports"
+CAMERAS_CONFIG = SCRIPT_DIR.parent / "config" / "cameras_config.json"
+TEST_VIDEOS_DIR = SCRIPT_DIR.parent.parent / "tests" / "camera_test_videos"
+TEST_REPORT_DIR = SCRIPT_DIR.parent.parent / "tests" / "camera_test_reports"
 
 # Test parameters
 PING_TIMEOUT_MS = 500

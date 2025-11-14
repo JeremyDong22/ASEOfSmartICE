@@ -461,7 +461,7 @@ def draw_enhanced_instruction_panel(frame, drawing_type, current_table_idx, tabl
         "  3. Press 'D' when done with Sitting -> next table",
         "",
         "CONTROLS: Enter - Add ROI | D - Done (next table)",
-        "          Cmd+Z / Ctrl+Z - Undo | Cmd+S / Ctrl+S - Save | Q - Quit"
+        "          Ctrl+Z - Undo | Ctrl+S - Save | Q - Quit"
     ]
 
     for instruction in instructions:
@@ -503,8 +503,8 @@ def setup_tables_from_video(video_path):
     print("   3. Press 'D' to complete this table and start next")
     print("\n   Enter/Return - Complete current ROI and add it")
     print("   D - Done with current table, start next")
-    print("   Cmd+S / Ctrl+S - Save all and finish")
-    print("   Cmd+Z / Ctrl+Z - Undo operation")
+    print("   Ctrl+S - Save all and finish")
+    print("   Ctrl+Z - Undo operation")
     print("   Q - Quit without saving")
     print("="*70 + "\n")
 
@@ -638,7 +638,7 @@ def setup_tables_from_video(video_path):
             elif drawing_type == 'table':
                 print(f"\n⚠ You must complete the table first (press Enter after drawing 4 points)")
 
-        # Cmd+S / Ctrl+S to save all ROIs
+        # Ctrl+S to save all ROIs
         elif key == 19:  # Ctrl+S
             if len(tables) > 0:
                 # Check if there are incomplete tables
@@ -646,7 +646,7 @@ def setup_tables_from_video(video_path):
                     print(f"\n⚠ Warning: Current table not complete!")
                     print(f"   Current mode: {drawing_type}")
                     print(f"   Points drawn: {len(current_table_points)}")
-                    print(f"   Press Cmd+S / Ctrl+S again to save anyway, or Enter to complete current ROI")
+                    print(f"   Press Ctrl+S again to save anyway, or Enter to complete current ROI")
                     continue
 
                 # Save to config file
@@ -685,7 +685,7 @@ def setup_tables_from_video(video_path):
             else:
                 print("\n✗ No tables defined yet")
 
-        # Cmd+Z / Ctrl+Z to undo (advanced undo)
+        # Ctrl+Z to undo (advanced undo)
         elif key == 26:  # Ctrl+Z
             # Advanced undo - can undo points OR completed operations
             if len(current_table_points) > 0:

@@ -77,10 +77,9 @@ production/RTX_3060/
 │   ├── time_sync/           # NTP synchronization
 │   ├── maintenance/         # Cleanup and monitoring
 │   ├── deployment/          # Setup and configuration
-│   ├── run_interactive.sh   # Quick launcher for ROI setup
-│   ├── run_with_config.sh   # Quick launcher for processing (60s)
-│   ├── cameras_config.json  # Camera IP addresses
-│   ├── table_region_config.json  # ROI configuration (5 tables)
+│   ├── config/              # Configuration files
+│   │   ├── cameras_config.json       # Camera IP addresses
+│   │   └── table_region_config.json  # ROI configuration (5 tables)
 │   └── STRUCTURE.md         # Detailed scripts organization guide
 ├── models/               # Trained YOLO models (53.1 MB total)
 │   ├── yolov8m.pt                          # Person detector
@@ -111,7 +110,7 @@ python3 video_processing/table_and_region_state_detection.py \
 1. Draw Division boundary (overall monitored area)
 2. For each table: Draw table surface → Draw sitting areas → Press 'D'
 3. Draw Service Areas (bar, POS, prep stations)
-4. Press Ctrl+S to save to `table_region_config.json`
+4. Press Ctrl+S to save to `config/table_region_config.json`
 
 **Keyboard Controls:**
 - `Enter` - Complete current ROI polygon
@@ -171,7 +170,9 @@ ls -la ../db/screenshots/[session_id]/T1_*.jpg
 
 ## Configuration Files
 
-### table_region_config.json
+**Location:** All configuration files are stored in `scripts/config/`
+
+### config/table_region_config.json
 **Structure:**
 ```json
 {

@@ -72,8 +72,8 @@ PERSON_CONF_THRESHOLD = 0.3
 STAFF_CONF_THRESHOLD = 0.5
 MIN_PERSON_SIZE = 40
 
-# Configuration file (in scripts root, not video_processing subdirectory)
-CONFIG_FILE = str(SCRIPT_DIR.parent / "table_region_config.json")
+# Configuration file (in scripts/config/)
+CONFIG_FILE = str(SCRIPT_DIR.parent / "config" / "table_region_config.json")
 
 # State transition parameters
 STATE_DEBOUNCE_SECONDS = 1.0  # All state changes require 1s stability

@@ -106,8 +106,8 @@ def setup_roi(reference_image_path):
     print(f"📏 Image size: {image.shape[1]}x{image.shape[0]}")
     print("\n📝 Instructions:")
     print("   1. Left-click to add polygon points")
-    print("   2. Cmd+Z / Ctrl+Z to undo last point")
-    print("   3. Cmd+S / Ctrl+S to complete and save (minimum 3 points)")
+    print("   2. Ctrl+Z to undo last point")
+    print("   3. Ctrl+S to complete and save (minimum 3 points)")
     print("   4. Press 'r' to reset and start over")
     print("   5. Press 'q' to quit without saving")
     print("\nℹ️  Define the area where you want to monitor staff...")
@@ -122,13 +122,13 @@ def setup_roi(reference_image_path):
         display_img = draw_roi_on_image(image, roi_points)
 
         # Add instruction text on image
-        cv2.putText(display_img, f"Points: {len(roi_points)} | Cmd+S to save | Cmd+Z to undo | 'r' to reset",
+        cv2.putText(display_img, f"Points: {len(roi_points)} | Ctrl+S to save | Ctrl+Z to undo | 'r' to reset",
                    (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
         cv2.imshow('ROI Setup', display_img)
         key = cv2.waitKey(1) & 0xFF
 
-        # Cmd+S / Ctrl+S to save (key 19 is Ctrl+S, key 115 is 's')
+        # Ctrl+S to save (key 19 is Ctrl+S, key 115 is 's')
         if key == 19 or key == ord('s'):
             if len(roi_points) >= 3:
                 # Save ROI to file
@@ -146,7 +146,7 @@ def setup_roi(reference_image_path):
             else:
                 print(f"\n⚠️  Need at least 3 points (currently {len(roi_points)})")
 
-        # Cmd+Z / Ctrl+Z to undo (key 26 is Ctrl+Z)
+        # Ctrl+Z to undo (key 26 is Ctrl+Z)
         elif key == 26 or key == ord('z'):
             if roi_points:
                 removed_point = roi_points.pop()

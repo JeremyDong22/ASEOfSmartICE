@@ -698,7 +698,7 @@ Log Files:
                        help="Process only specific camera IDs (e.g., camera_35 camera_22)")
     parser.add_argument("--duration", type=int,
                        help="Process only first N seconds of each video (for testing)")
-    parser.add_argument("--config", default=str(SCRIPT_DIR / "table_region_config.json"),
+    parser.add_argument("--config", default=str(SCRIPT_DIR.parent / "config" / "table_region_config.json"),
                        help="Path to ROI config file")
     parser.add_argument("--list", action="store_true",
                        help="List all discovered videos and exit")
