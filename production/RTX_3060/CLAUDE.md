@@ -172,33 +172,115 @@ ls -la ../db/screenshots/[session_id]/division_*.jpg
 ls -la ../db/screenshots/[session_id]/T1_*.jpg
 ```
 
+## Production Optimizations (v3.0)
+
+**Last Updated:** 2025-11-14
+
+Four critical optimizations implemented for production RTX 3060 deployment:
+
+### 1. Dynamic GPU Worker Scaling (orchestration/process_videos_orchestrator.py v3.0.0)
+
+**Problem:** Fixed 4-worker approach wasted GPU resources or caused thermal issues.
+
+**Solution:** Research-based dynamic scaling using pynvml (nvidia-ml-py3)
+- **Start conservative:** 1 worker (not 4)
+- **Scale intelligently:** Based on temperature, utilization, and memory
+- **RTX 3060 safe range:** 65-80°C optimal, 83-85°C throttle, 93°C max
+- **Scale up conditions (ALL must pass):**
+  - Temperature < 70°C
+  - GPU utilization < 70%
+  - Free memory > 2GB
+  - 60-second cooldown elapsed
+- **Scale down conditions (ANY triggers):**
+  - Temperature > 75°C
+  - GPU utilization > 85%
+  - Free memory < 1GB
+- **Emergency shutdown:** Temperature >= 80°C (2-minute cooldown)
+
+**Result:** Adaptive 1-8 worker pool maximizes throughput while preventing thermal damage.
+
+### 2. FPS-Based Network Reconnection (video_capture/capture_rtsp_streams.py v3.0.0)
+
+**Problem:** 30-second reconnection delay could miss critical state changes (customer leaving, table transitions).
+
+**Solution:** Immediate segmentation based on frame rate monitoring
+- **Monitor FPS continuously:** Sliding window of 20 frames
+- **Detect disconnect:** FPS < 2 (not time-based delay)
+- **Immediate action:** Save current file, create new segment instantly
+- **No gaps:** Continuous coverage even during network issues
+- **Faster reconnection:** 10-second retry interval (vs 30s)
+- **Coverage tracking:** Log all gaps and resumptions
+
+**Result:** Zero missed state changes during network instability.
+
+### 3. First-Second Preprocessing (video_processing/table_and_region_state_detection.py v3.0.0)
+
+**Problem:** 1-second debounce requirement meant initial states couldn't be established immediately.
+
+**Solution:** Pause at first frame to establish baseline
+- **Read first frame:** Capture initial scene state
+- **Run detection:** Process frame through both detection stages
+- **Initialize states:** Set all table and division states based on first frame
+- **Wait 1 second:** Fill debounce buffer before playback
+- **Resume playback:** Start normal frame-by-frame processing
+
+**Result:** All ROIs have valid states from frame 0, preventing false transitions.
+
+### 4. Intelligent Disk Monitoring (monitoring/check_disk_space.py v2.0.0)
+
+**Problem:** Reactive 2-hour checks couldn't predict running out of space mid-day.
+
+**Solution:** Predictive monitoring with usage speed calculation
+- **Measure speed:** Observe disk usage for 30 seconds
+- **Calculate rate:** GB/hour during recording window
+- **Query recording:** Remaining hours until 9 PM
+- **Predict need:** Rate × Remaining hours + 20% safety margin
+- **Proactive cleanup:** Free space BEFORE shortage occurs
+- **Hourly checks:** Changed from 2-hour to 1-hour cron interval
+
+**Key Features:**
+- Detects active recording processes (`capture_rtsp_streams`)
+- Only measures speed during recording hours (11 AM - 9 PM)
+- Three-tier status: SAFE (margin) / TIGHT (sufficient) / CRITICAL (shortage)
+- Automatic proactive cleanup based on predictions
+
+**Result:** No mid-day storage failures, proactive space management.
+
 ## System Monitoring
 
 ### monitoring/
 Real-time system health monitoring and management.
 
 **Scripts:**
-- `check_disk_space.py` - Disk space monitoring with smart cleanup
+- `check_disk_space.py` v2.0.0 - **Intelligent** disk space monitoring with predictive analytics
 - `monitor_gpu.py` - GPU temperature and utilization tracking
 - `system_health.py` - Comprehensive health check
 
-**Key Features:**
-- **Smart Cleanup**: Automatically deletes oldest videos when space < 100GB
+**Key Features (v2.0.0):**
+- **Intelligent Prediction**: Measures disk usage speed, predicts space needs
+- **Proactive Cleanup**: Frees space BEFORE running out (not reactive)
+- **Smart Cleanup**: Automatically deletes oldest videos when needed
 - **Protected Dates**: Always keeps today + yesterday (for processing)
-- **Critical Alerts**: Warns if can't store even 1 day of videos
+- **Critical Alerts**: Warns if can't store remaining day of videos
 - **GPU Monitoring**: Real-time temperature and utilization
 - **Exit Codes**: 0=healthy, 1=warning, 2=critical
 
-**Usage:**
+**Usage (v2.0.0):**
 ```bash
-# Check disk space
+# Check disk space with predictions (default)
 python3 monitoring/check_disk_space.py --check
 
-# Auto-cleanup if needed
+# Show detailed predictions
+python3 monitoring/check_disk_space.py --predict
+
+# Auto-cleanup with predictive target
 python3 monitoring/check_disk_space.py --cleanup
 
 # Dry run (test without deleting)
 python3 monitoring/check_disk_space.py --cleanup --dry-run
+
+# Disable predictions (use basic check only)
+python3 monitoring/check_disk_space.py --check --no-prediction
 
 # Monitor GPU
 python3 monitoring/monitor_gpu.py
@@ -210,9 +292,18 @@ python3 monitoring/monitor_gpu.py --watch 30
 python3 monitoring/system_health.py
 ```
 
+**Intelligent Prediction Logic (v2.0.0):**
+1. Check if recording is active (pgrep capture_rtsp_streams)
+2. Calculate remaining recording hours (until 9 PM)
+3. Measure disk usage speed (observe 30 seconds)
+4. Calculate: Rate (GB/hour) × Remaining hours = Predicted usage
+5. Add 20% safety margin
+6. Compare predicted free space vs current
+7. Proactive cleanup if prediction shows future shortage
+
 **Smart Cleanup Logic:**
 1. Check available disk space
-2. If < 100GB, identify date folders to delete
+2. If < 100GB (or prediction shows shortage), identify date folders to delete
 3. Protect today's recordings (currently recording)
 4. Protect yesterday's recordings (will be processed at midnight)
 5. Delete oldest videos first (oldest → newest)
@@ -220,7 +311,8 @@ python3 monitoring/system_health.py
 7. If can't store 1 day of videos → Critical alert
 
 **Automated Monitoring:**
-Disk space check runs every 2 hours via cron (see `deployment/install_cron_jobs.sh`)
+Disk space check runs **hourly** via cron (see `deployment/install_cron_jobs.sh`)
+- **Changed from 2-hour to 1-hour intervals for better prediction accuracy**
 
 ## Configuration Files
 

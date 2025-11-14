@@ -1,13 +1,21 @@
 #!/usr/bin/env python3
 """
-Multi-Camera Video Processing Orchestrator with GPU Queue Management
-Version: 2.0.0
+Multi-Camera Video Processing Orchestrator with Dynamic GPU Worker Management
+Version: 3.0.0
 Last Updated: 2025-11-14
 
 Purpose: Intelligent GPU-aware orchestration of multi-camera video processing
-Uses queue-based job management with GPU health monitoring
+Uses dynamic worker scaling based on real-time GPU metrics
 
-Major Changes in v2.0.0:
+Major Changes in v3.0.0:
+- Dynamic GPU worker management (starts with 1, scales based on metrics)
+- Uses pynvml for real-time GPU monitoring (fallback to nvidia-smi)
+- Conservative scale-up, aggressive scale-down strategy
+- Emergency stop at 80°C temperature threshold
+- 60-second cooldown between scaling decisions
+- Worker threads self-manage based on dynamic count
+
+Changes in v2.0.0:
 - Replaced simple threading with job queue system
 - Added GPU temperature/utilization/memory monitoring via nvidia-smi
 - Dynamic parallel job limits based on GPU health
@@ -44,6 +52,15 @@ import re
 import sys
 import platform
 
+# Try to import pynvml for GPU monitoring
+try:
+    import pynvml
+    PYNVML_AVAILABLE = True
+except ImportError:
+    PYNVML_AVAILABLE = False
+    print("⚠️  Warning: pynvml not installed. Using fallback GPU monitoring.")
+    print("   Install with: pip3 install nvidia-ml-py3")
+
 
 # ============================================================================
 # CONFIGURATION
@@ -56,15 +73,23 @@ DETECTION_SCRIPT = SCRIPT_DIR.parent / "video_processing" / "table_and_region_st
 
 # GPU monitoring settings
 GPU_CHECK_INTERVAL = 30  # Check GPU health every 30 seconds
-GPU_TEMP_WARNING = 70    # Reduce parallelism at this temp
-GPU_TEMP_CRITICAL = 80   # Minimal parallelism at this temp
-GPU_UTIL_HIGH = 95       # High utilization threshold
-GPU_MEM_HIGH = 90        # High memory threshold
 
-# Default parallel job limits
-DEFAULT_MAX_PARALLEL = 4     # Healthy GPU
-WARM_MAX_PARALLEL = 2        # Warm GPU (70-80°C)
-HOT_MAX_PARALLEL = 1         # Hot GPU (>80°C)
+# Dynamic worker scaling settings (RTX 3060 research-based)
+DEFAULT_MIN_WORKERS = 1       # Always start with 1 worker
+DEFAULT_MAX_WORKERS = 8       # Maximum workers (conservative for 10 cameras)
+
+# RTX 3060 temperature thresholds (based on research)
+TEMP_SCALE_UP_THRESHOLD = 70     # °C - Safe to add workers
+TEMP_SCALE_DOWN_THRESHOLD = 75   # °C - Remove workers
+TEMP_EMERGENCY_THRESHOLD = 80    # °C - Emergency stop (pause all)
+
+# GPU utilization thresholds
+GPU_UTIL_SCALE_UP_THRESHOLD = 70    # % - Safe to add workers
+GPU_UTIL_SCALE_DOWN_THRESHOLD = 85  # % - Remove workers
+
+# Memory thresholds
+MIN_MEMORY_FREE_GB = 2.0  # Minimum free memory to scale up
+SCALE_COOLDOWN_SECONDS = 60  # Wait time between scaling decisions
 
 # Log rotation settings
 LOG_RETENTION_DAYS = 14  # Keep 2 weeks of logs
@@ -74,43 +99,126 @@ LOG_RETENTION_DAYS = 14  # Keep 2 weeks of logs
 # GPU MONITORING
 # ============================================================================
 
-class GPUMonitor:
+class DynamicGPUMonitor:
     """
-    Monitor GPU health using nvidia-smi
-    Tracks temperature, utilization, and memory usage
+    Dynamic GPU monitoring and worker scaling for RTX 3060
+
+    Based on research findings:
+    - RTX 3060 safe range: 65-80°C
+    - Thermal throttling: 83-85°C
+    - Start with 1 worker, scale based on metrics
+
+    Uses pynvml (preferred) or falls back to nvidia-smi
     """
 
-    def __init__(self, logger):
+    def __init__(self, logger: logging.Logger,
+                 min_workers: int = DEFAULT_MIN_WORKERS,
+                 max_workers: int = DEFAULT_MAX_WORKERS):
         self.logger = logger
-        self.is_available = self._check_nvidia_smi()
-        self.last_check = None
-        self.last_metrics = None
+        self.min_workers = min_workers
+        self.max_workers = max_workers
 
-        if not self.is_available:
-            self.logger.warning("nvidia-smi not available - GPU monitoring disabled")
-            if platform.system() == "Darwin":
-                self.logger.info("Running on macOS - GPU monitoring not supported")
+        # RTX 3060 thresholds (from research)
+        self.TEMP_SCALE_UP_THRESHOLD = TEMP_SCALE_UP_THRESHOLD
+        self.TEMP_SCALE_DOWN_THRESHOLD = TEMP_SCALE_DOWN_THRESHOLD
+        self.TEMP_EMERGENCY_THRESHOLD = TEMP_EMERGENCY_THRESHOLD
 
-    def _check_nvidia_smi(self) -> bool:
-        """Check if nvidia-smi is available"""
+        self.GPU_UTIL_SCALE_UP_THRESHOLD = GPU_UTIL_SCALE_UP_THRESHOLD
+        self.GPU_UTIL_SCALE_DOWN_THRESHOLD = GPU_UTIL_SCALE_DOWN_THRESHOLD
+
+        self.MIN_MEMORY_FREE_GB = MIN_MEMORY_FREE_GB
+        self.SCALE_COOLDOWN_SECONDS = SCALE_COOLDOWN_SECONDS
+
+        # State tracking
+        self.last_scale_time = 0
+        self.is_available = False
+        self.use_pynvml = False
+        self.handle = None
+
+        # Initialize GPU monitoring
+        self._initialize()
+
+    def _initialize(self):
+        """Initialize GPU monitoring (try pynvml first, fall back to nvidia-smi)"""
+        # Try pynvml first
+        if PYNVML_AVAILABLE:
+            try:
+                pynvml.nvmlInit()
+                self.handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+                self.use_pynvml = True
+                self.is_available = True
+
+                # Get GPU name
+                name = pynvml.nvmlDeviceGetName(self.handle)
+                if isinstance(name, bytes):
+                    name = name.decode('utf-8')
+
+                self.logger.info(f"✅ GPU initialized with pynvml: {name}")
+                return
+
+            except Exception as e:
+                self.logger.warning(f"pynvml initialization failed: {e}")
+                self.use_pynvml = False
+
+        # Fall back to nvidia-smi
         try:
             subprocess.run(
                 ["nvidia-smi", "--query-gpu=temperature.gpu", "--format=csv,noheader"],
                 capture_output=True,
                 timeout=5
             )
-            return True
+            self.is_available = True
+            self.logger.info("✅ GPU initialized with nvidia-smi (fallback)")
+
         except (FileNotFoundError, subprocess.TimeoutExpired):
-            return False
+            self.is_available = False
+            self.logger.warning("❌ GPU monitoring not available - using default worker count")
+            if platform.system() == "Darwin":
+                self.logger.info("Running on macOS - GPU monitoring not supported")
 
     def get_metrics(self) -> Optional[Dict]:
-        """
-        Query GPU metrics using nvidia-smi
-        Returns: {temp: int, utilization: int, memory_used: int, memory_total: int}
-        """
+        """Get current GPU metrics"""
         if not self.is_available:
             return None
 
+        # Use pynvml if available
+        if self.use_pynvml:
+            return self._get_metrics_pynvml()
+        else:
+            return self._get_metrics_nvidia_smi()
+
+    def _get_metrics_pynvml(self) -> Optional[Dict]:
+        """Get metrics using pynvml (preferred)"""
+        try:
+            # Temperature
+            temp = pynvml.nvmlDeviceGetTemperature(
+                self.handle,
+                pynvml.NVML_TEMPERATURE_GPU
+            )
+
+            # Utilization
+            util = pynvml.nvmlDeviceGetUtilizationRates(self.handle)
+
+            # Memory
+            mem_info = pynvml.nvmlDeviceGetMemoryInfo(self.handle)
+            mem_free_gb = mem_info.free / (1024**3)
+            mem_total_gb = mem_info.total / (1024**3)
+
+            return {
+                'temperature': temp,
+                'gpu_utilization': util.gpu,
+                'memory_free_gb': mem_free_gb,
+                'memory_total_gb': mem_total_gb,
+                'memory_used_gb': mem_info.used / (1024**3),
+                'memory_percent': (mem_info.used / mem_info.total) * 100,
+                'timestamp': datetime.now().isoformat()
+            }
+        except Exception as e:
+            self.logger.error(f"Error reading GPU metrics (pynvml): {e}")
+            return None
+
+    def _get_metrics_nvidia_smi(self) -> Optional[Dict]:
+        """Get metrics using nvidia-smi (fallback)"""
         try:
             # Query multiple metrics in one call
             result = subprocess.run([
@@ -125,55 +233,88 @@ class GPUMonitor:
             # Parse output (format: "75, 80, 5000, 12000")
             values = [int(x.strip()) for x in result.stdout.strip().split(',')]
 
-            metrics = {
-                'temp': values[0],
-                'utilization': values[1],
-                'memory_used': values[2],
-                'memory_total': values[3],
-                'memory_percent': (values[2] / values[3] * 100) if values[3] > 0 else 0,
+            mem_used_mb = values[2]
+            mem_total_mb = values[3]
+            mem_free_mb = mem_total_mb - mem_used_mb
+
+            return {
+                'temperature': values[0],
+                'gpu_utilization': values[1],
+                'memory_free_gb': mem_free_mb / 1024,
+                'memory_total_gb': mem_total_mb / 1024,
+                'memory_used_gb': mem_used_mb / 1024,
+                'memory_percent': (mem_used_mb / mem_total_mb * 100) if mem_total_mb > 0 else 0,
                 'timestamp': datetime.now().isoformat()
             }
 
-            self.last_check = time.time()
-            self.last_metrics = metrics
-
-            return metrics
-
         except Exception as e:
-            self.logger.error(f"GPU metrics query failed: {e}")
+            self.logger.error(f"Error reading GPU metrics (nvidia-smi): {e}")
             return None
 
-    def get_health_status(self) -> Tuple[str, int]:
-        """
-        Determine GPU health and recommended parallel jobs
-        Returns: (status, max_parallel)
-        """
-        metrics = self.get_metrics()
-
+    def should_scale_up(self, metrics: Dict, current_workers: int) -> bool:
+        """Check if conditions allow adding a worker"""
         if not metrics:
-            # No GPU monitoring available - use default
-            return ("unknown", DEFAULT_MAX_PARALLEL)
+            return False
 
-        temp = metrics['temp']
-        util = metrics['utilization']
-        mem = metrics['memory_percent']
+        # Already at max
+        if current_workers >= self.max_workers:
+            return False
 
-        # Determine status based on thresholds
-        if temp >= GPU_TEMP_CRITICAL or util >= GPU_UTIL_HIGH or mem >= GPU_MEM_HIGH:
-            return ("critical", HOT_MAX_PARALLEL)
-        elif temp >= GPU_TEMP_WARNING:
-            return ("warm", WARM_MAX_PARALLEL)
-        else:
-            return ("healthy", DEFAULT_MAX_PARALLEL)
+        # Cooldown period
+        if time.time() - self.last_scale_time < self.SCALE_COOLDOWN_SECONDS:
+            return False
+
+        # All conditions must be met (conservative scaling)
+        return (
+            metrics['temperature'] < self.TEMP_SCALE_UP_THRESHOLD and
+            metrics['gpu_utilization'] < self.GPU_UTIL_SCALE_UP_THRESHOLD and
+            metrics['memory_free_gb'] > self.MIN_MEMORY_FREE_GB
+        )
+
+    def should_scale_down(self, metrics: Dict, current_workers: int) -> bool:
+        """Check if we need to reduce workers"""
+        if not metrics:
+            return False
+
+        # Already at minimum
+        if current_workers <= self.min_workers:
+            return False
+
+        # Any condition triggers scale down (aggressive)
+        return (
+            metrics['temperature'] > self.TEMP_SCALE_DOWN_THRESHOLD or
+            metrics['gpu_utilization'] > self.GPU_UTIL_SCALE_DOWN_THRESHOLD or
+            metrics['memory_free_gb'] < 1.0
+        )
+
+    def is_emergency(self, metrics: Dict) -> bool:
+        """Check if emergency stop needed"""
+        if not metrics:
+            return False
+
+        return metrics['temperature'] >= self.TEMP_EMERGENCY_THRESHOLD
+
+    def record_scaling(self):
+        """Record that we just scaled"""
+        self.last_scale_time = time.time()
 
     def log_metrics(self, metrics: Dict):
         """Log GPU metrics to logger"""
         self.logger.info(
-            f"GPU: {metrics['temp']}°C | "
-            f"Util: {metrics['utilization']}% | "
-            f"Mem: {metrics['memory_used']}MB / {metrics['memory_total']}MB "
+            f"GPU: {metrics['temperature']}°C | "
+            f"Util: {metrics['gpu_utilization']}% | "
+            f"Mem: {metrics['memory_free_gb']:.1f}GB free / "
+            f"{metrics['memory_total_gb']:.1f}GB total "
             f"({metrics['memory_percent']:.1f}%)"
         )
+
+    def shutdown(self):
+        """Cleanup pynvml"""
+        if self.use_pynvml and self.is_available:
+            try:
+                pynvml.nvmlShutdown()
+            except:
+                pass
 
 
 # ============================================================================
@@ -322,22 +463,30 @@ class ProcessingJob:
 
 class ProcessingQueue:
     """
-    GPU-aware processing queue with dynamic concurrency control
+    GPU-aware processing queue with dynamic worker scaling
+
+    Starts with 1 worker, scales up/down based on GPU metrics
     """
 
-    def __init__(self, logger: logging.Logger, gpu_monitor: GPUMonitor,
-                 max_parallel: int = DEFAULT_MAX_PARALLEL):
+    def __init__(self, logger: logging.Logger, gpu_monitor: DynamicGPUMonitor,
+                 max_workers: int = DEFAULT_MAX_WORKERS):
         self.logger = logger
         self.gpu_monitor = gpu_monitor
-        self.max_parallel = max_parallel
-        self.current_parallel = max_parallel
+        self.max_workers = max_workers
+        self.min_workers = gpu_monitor.min_workers
+
+        # Dynamic worker management
+        self.current_worker_count = 0
+        self.worker_threads = []
+        self.worker_lock = threading.Lock()
+        self.stop_event = threading.Event()
 
         # Job queue (priority queue - older videos first)
         self.job_queue = queue.PriorityQueue()
 
-        # Active workers tracking
-        self.active_workers = {}
-        self.worker_lock = threading.Lock()
+        # Active jobs tracking (for monitoring)
+        self.active_jobs = {}
+        self.active_jobs_lock = threading.Lock()
 
         # Statistics
         self.jobs_completed = 0
@@ -345,8 +494,8 @@ class ProcessingQueue:
         self.total_processing_time = 0
         self.start_time = None
 
-        # Shutdown flag
-        self.shutdown = False
+        # GPU monitoring thread
+        self.gpu_monitoring_thread = None
 
     def add_job(self, job: ProcessingJob):
         """Add a job to the queue"""
@@ -354,28 +503,41 @@ class ProcessingQueue:
 
     def get_queue_status(self) -> Dict:
         """Get current queue status"""
-        with self.worker_lock:
-            active_count = len(self.active_workers)
+        with self.active_jobs_lock:
+            active_count = len(self.active_jobs)
 
         return {
             'jobs_waiting': self.job_queue.qsize(),
             'jobs_running': active_count,
             'jobs_completed': self.jobs_completed,
             'jobs_failed': self.jobs_failed,
-            'max_parallel': self.current_parallel
+            'current_workers': self.current_worker_count,
+            'max_workers': self.max_workers
         }
 
-    def adjust_parallelism(self):
-        """Adjust max parallel jobs based on GPU health"""
-        status, recommended_parallel = self.gpu_monitor.get_health_status()
-
-        if recommended_parallel != self.current_parallel:
-            old_parallel = self.current_parallel
-            self.current_parallel = recommended_parallel
-            self.logger.warning(
-                f"GPU health: {status.upper()} - "
-                f"Adjusting parallelism: {old_parallel} -> {self.current_parallel}"
+    def _add_worker(self):
+        """Add a new worker thread"""
+        with self.worker_lock:
+            worker_id = self.current_worker_count
+            thread = threading.Thread(
+                target=self._worker_thread,
+                args=(worker_id,),
+                daemon=True,
+                name=f"Worker-{worker_id}"
             )
+            thread.start()
+            self.worker_threads.append(thread)
+            self.current_worker_count += 1
+            self.gpu_monitor.record_scaling()
+            self.logger.info(f"➕ Added worker {worker_id}, total: {self.current_worker_count}")
+
+    def _remove_worker(self):
+        """Signal one worker to stop (it will finish current job)"""
+        with self.worker_lock:
+            if self.current_worker_count > self.min_workers:
+                self.current_worker_count -= 1
+                self.gpu_monitor.record_scaling()
+                self.logger.info(f"➖ Reduced workers to {self.current_worker_count}")
 
     def process_job(self, job: ProcessingJob) -> bool:
         """
@@ -384,9 +546,9 @@ class ProcessingQueue:
         """
         worker_id = threading.get_ident()
 
-        # Register worker
-        with self.worker_lock:
-            self.active_workers[worker_id] = job
+        # Register job
+        with self.active_jobs_lock:
+            self.active_jobs[worker_id] = job
 
         try:
             self.logger.info(f"[{job.camera_id}] START: {job.video_name}")
@@ -443,55 +605,135 @@ class ProcessingQueue:
             return False
 
         finally:
-            # Unregister worker
-            with self.worker_lock:
-                self.active_workers.pop(worker_id, None)
+            # Unregister job
+            with self.active_jobs_lock:
+                self.active_jobs.pop(worker_id, None)
 
-    def worker_thread(self):
+    def _worker_thread(self, worker_id: int):
         """Worker thread that processes jobs from queue"""
-        while not self.shutdown:
+        self.logger.info(f"[Worker {worker_id}] Started")
+
+        while not self.stop_event.is_set():
             try:
-                # Wait for a job slot to be available
-                while True:
-                    with self.worker_lock:
-                        active_count = len(self.active_workers)
-
-                    if active_count < self.current_parallel:
-                        break
-
-                    time.sleep(1)  # Check every second
+                # Check if this worker should exit (over limit)
+                if worker_id >= self.current_worker_count:
+                    self.logger.info(f"[Worker {worker_id}] Exiting (over limit)")
+                    break
 
                 # Get next job (with timeout to check shutdown flag)
                 try:
-                    job = self.job_queue.get(timeout=1)
+                    job = self.job_queue.get(timeout=5)
                 except queue.Empty:
                     continue
+
+                # Check again if we should still be running
+                if worker_id >= self.current_worker_count:
+                    # Put job back
+                    self.job_queue.put(job)
+                    self.logger.info(f"[Worker {worker_id}] Exiting (over limit)")
+                    break
 
                 # Process job
                 self.process_job(job)
                 self.job_queue.task_done()
 
             except Exception as e:
-                self.logger.error(f"Worker thread error: {e}")
+                self.logger.error(f"[Worker {worker_id}] Error: {e}")
 
-    def start_workers(self, num_workers: int):
-        """Start worker threads"""
+        self.logger.info(f"[Worker {worker_id}] Stopped")
+
+    def _gpu_monitoring_thread(self):
+        """Monitor GPU and adjust worker count dynamically"""
+        self.logger.info("GPU monitoring thread started")
+
+        while not self.stop_event.is_set():
+            try:
+                # Get metrics
+                metrics = self.gpu_monitor.get_metrics()
+
+                if metrics:
+                    # Log current state
+                    self.gpu_monitor.log_metrics(metrics)
+
+                    # Log queue status
+                    status = self.get_queue_status()
+                    self.logger.info(
+                        f"Queue: {status['jobs_running']} running | "
+                        f"{status['jobs_waiting']} waiting | "
+                        f"{status['jobs_completed']} completed | "
+                        f"{status['jobs_failed']} failed | "
+                        f"Workers: {status['current_workers']}/{status['max_workers']}"
+                    )
+
+                    # Emergency check
+                    if self.gpu_monitor.is_emergency(metrics):
+                        self.logger.error(
+                            f"🚨 EMERGENCY: GPU temperature {metrics['temperature']}°C! "
+                            f"Reducing to minimum workers..."
+                        )
+                        # Reduce to minimum
+                        while self.current_worker_count > self.min_workers:
+                            self._remove_worker()
+                        # Wait 2 minutes for cooldown
+                        self.logger.info("Waiting 120 seconds for GPU cooldown...")
+                        time.sleep(120)
+                        continue
+
+                    # Scale down check (aggressive)
+                    if self.gpu_monitor.should_scale_down(metrics, self.current_worker_count):
+                        self.logger.warning(
+                            f"⚠️  Scaling DOWN: Temp={metrics['temperature']}°C, "
+                            f"Util={metrics['gpu_utilization']}%, "
+                            f"Free Mem={metrics['memory_free_gb']:.1f}GB"
+                        )
+                        self._remove_worker()
+
+                    # Scale up check (conservative)
+                    elif self.gpu_monitor.should_scale_up(metrics, self.current_worker_count):
+                        self.logger.info(
+                            f"✅ Scaling UP: Conditions favorable "
+                            f"(Temp={metrics['temperature']}°C, "
+                            f"Util={metrics['gpu_utilization']}%, "
+                            f"Free Mem={metrics['memory_free_gb']:.1f}GB)"
+                        )
+                        self._add_worker()
+
+                # Wait 30 seconds before next check
+                time.sleep(GPU_CHECK_INTERVAL)
+
+            except Exception as e:
+                self.logger.error(f"GPU monitoring error: {e}")
+                time.sleep(GPU_CHECK_INTERVAL)
+
+        self.logger.info("GPU monitoring thread stopped")
+
+    def start_workers(self, initial_workers: int = 1):
+        """Start initial worker threads and GPU monitoring"""
         self.start_time = time.time()
-        self.logger.info(f"Starting {num_workers} worker threads")
+        self.logger.info(f"Starting with {initial_workers} worker thread(s)")
 
-        threads = []
-        for i in range(num_workers):
-            t = threading.Thread(target=self.worker_thread, name=f"Worker-{i+1}")
-            t.daemon = True
-            t.start()
-            threads.append(t)
+        # Start initial workers
+        for i in range(initial_workers):
+            self._add_worker()
 
-        return threads
+        # Start GPU monitoring thread
+        self.gpu_monitoring_thread = threading.Thread(
+            target=self._gpu_monitoring_thread,
+            name="GPU-Monitor",
+            daemon=True
+        )
+        self.gpu_monitoring_thread.start()
+
+        return self.worker_threads
 
     def wait_for_completion(self):
         """Wait for all jobs to complete"""
         self.job_queue.join()
-        self.shutdown = True
+        self.stop_event.set()
+
+        # Wait for GPU monitoring thread to stop
+        if self.gpu_monitoring_thread and self.gpu_monitoring_thread.is_alive():
+            self.gpu_monitoring_thread.join(timeout=5)
 
     def get_statistics(self) -> Dict:
         """Get final processing statistics"""
@@ -508,45 +750,6 @@ class ProcessingQueue:
         }
 
 
-# ============================================================================
-# GPU MONITORING THREAD
-# ============================================================================
-
-def gpu_monitoring_thread(gpu_monitor: GPUMonitor, processing_queue: ProcessingQueue,
-                         logger: logging.Logger, interval: int = GPU_CHECK_INTERVAL):
-    """
-    Background thread that monitors GPU health and adjusts parallelism
-    """
-    logger.info(f"GPU monitoring thread started (interval: {interval}s)")
-
-    while not processing_queue.shutdown:
-        try:
-            # Get GPU metrics
-            metrics = gpu_monitor.get_metrics()
-
-            if metrics:
-                # Log metrics
-                gpu_monitor.log_metrics(metrics)
-
-                # Adjust parallelism based on GPU health
-                processing_queue.adjust_parallelism()
-
-                # Log queue status
-                status = processing_queue.get_queue_status()
-                logger.info(
-                    f"Queue: {status['jobs_running']} running | "
-                    f"{status['jobs_waiting']} waiting | "
-                    f"{status['jobs_completed']} completed | "
-                    f"{status['jobs_failed']} failed | "
-                    f"Max parallel: {status['max_parallel']}"
-                )
-
-            # Sleep until next check
-            time.sleep(interval)
-
-        except Exception as e:
-            logger.error(f"GPU monitoring error: {e}")
-            time.sleep(interval)
 
 
 # ============================================================================
@@ -555,24 +758,20 @@ def gpu_monitoring_thread(gpu_monitor: GPUMonitor, processing_queue: ProcessingQ
 
 def process_with_queue(videos_by_camera: Dict[str, List[str]], logger: logging.Logger,
                       duration: Optional[int] = None, config_path: Optional[str] = None,
-                      max_parallel: int = DEFAULT_MAX_PARALLEL,
-                      gpu_temp_limit: int = GPU_TEMP_CRITICAL):
+                      max_workers: int = DEFAULT_MAX_WORKERS,
+                      min_workers: int = DEFAULT_MIN_WORKERS):
     """
-    Process videos using GPU-aware job queue
+    Process videos using dynamic GPU-aware worker scaling
     """
     if not videos_by_camera:
         logger.error("No videos to process")
         return
 
     # Initialize GPU monitor
-    gpu_monitor = GPUMonitor(logger)
+    gpu_monitor = DynamicGPUMonitor(logger, min_workers, max_workers)
 
     # Initialize processing queue
-    processing_queue = ProcessingQueue(logger, gpu_monitor, max_parallel)
-
-    # Update GPU temp limit if specified
-    global GPU_TEMP_CRITICAL
-    GPU_TEMP_CRITICAL = gpu_temp_limit
+    processing_queue = ProcessingQueue(logger, gpu_monitor, max_workers)
 
     # Create jobs (priority = timestamp, older videos first)
     total_jobs = 0
@@ -586,12 +785,12 @@ def process_with_queue(videos_by_camera: Dict[str, List[str]], logger: logging.L
             total_jobs += 1
 
     logger.info("="*80)
-    logger.info("MULTI-CAMERA VIDEO PROCESSING WITH GPU QUEUE MANAGEMENT")
+    logger.info("MULTI-CAMERA VIDEO PROCESSING WITH DYNAMIC GPU WORKER SCALING")
     logger.info("="*80)
     logger.info(f"Cameras: {len(videos_by_camera)}")
     logger.info(f"Total jobs: {total_jobs}")
-    logger.info(f"Max parallel jobs: {max_parallel}")
-    logger.info(f"GPU temp limit: {gpu_temp_limit}°C")
+    logger.info(f"Worker range: {min_workers} - {max_workers} (starts with {min_workers})")
+    logger.info(f"GPU thresholds: Scale-up <{TEMP_SCALE_UP_THRESHOLD}°C, Scale-down >{TEMP_SCALE_DOWN_THRESHOLD}°C, Emergency >={TEMP_EMERGENCY_THRESHOLD}°C")
     if duration:
         logger.info(f"Processing duration: {duration}s per video")
     logger.info("="*80)
@@ -606,17 +805,8 @@ def process_with_queue(videos_by_camera: Dict[str, List[str]], logger: logging.L
     logger.info("Starting processing...")
     logger.info("="*80)
 
-    # Start GPU monitoring thread
-    gpu_thread = threading.Thread(
-        target=gpu_monitoring_thread,
-        args=(gpu_monitor, processing_queue, logger),
-        name="GPU-Monitor"
-    )
-    gpu_thread.daemon = True
-    gpu_thread.start()
-
-    # Start worker threads (pool of workers that pull from queue)
-    worker_threads = processing_queue.start_workers(max_parallel)
+    # Start worker threads (includes GPU monitoring)
+    worker_threads = processing_queue.start_workers(initial_workers=min_workers)
 
     # Wait for all jobs to complete
     processing_queue.wait_for_completion()
@@ -641,6 +831,9 @@ def process_with_queue(videos_by_camera: Dict[str, List[str]], logger: logging.L
         logger.info("Final GPU state:")
         gpu_monitor.log_metrics(final_metrics)
 
+    # Cleanup GPU monitor
+    gpu_monitor.shutdown()
+
 
 # ============================================================================
 # MAIN ENTRY POINT
@@ -662,8 +855,8 @@ Examples:
   # Process first 60 seconds of each video (for testing)
   python3 process_videos_orchestrator.py --duration 60
 
-  # Custom max parallel jobs and GPU temp limit
-  python3 process_videos_orchestrator.py --max-parallel 2 --gpu-temp-limit 75
+  # Custom worker limits (default: 1-8 workers)
+  python3 process_videos_orchestrator.py --min-workers 2 --max-workers 6
 
   # Enable debug logging
   python3 process_videos_orchestrator.py --log-level DEBUG
@@ -672,12 +865,13 @@ Workflow:
 1. Script scans videos/ folder for all .mp4 files
 2. Groups videos by camera_id (extracted from filename)
 3. Creates priority queue (older videos first)
-4. Starts GPU monitoring thread (checks every 30s)
-5. Starts worker threads that pull jobs from queue
-6. Dynamically adjusts parallelism based on GPU health:
-   - Healthy GPU (<70°C): 4 parallel jobs
-   - Warm GPU (70-80°C): 2 parallel jobs
-   - Hot GPU (>80°C): 1 job at a time
+4. Starts with 1 worker thread
+5. GPU monitoring thread checks metrics every 30s
+6. Dynamically scales workers based on real-time GPU health:
+   - Scale UP if: temp <70°C AND util <70% AND mem >2GB (conservative)
+   - Scale DOWN if: temp >75°C OR util >85% OR mem <1GB (aggressive)
+   - Emergency stop: temp >=80°C (reduce to minimum, wait 2 mins)
+   - Cooldown: 60 seconds between scaling decisions
 7. Logs all events to logs/processing_YYYYMMDD_HHMMSS.log
 8. Generates statistics report at completion
 
@@ -702,10 +896,10 @@ Log Files:
                        help="Path to ROI config file")
     parser.add_argument("--list", action="store_true",
                        help="List all discovered videos and exit")
-    parser.add_argument("--max-parallel", type=int, default=DEFAULT_MAX_PARALLEL,
-                       help=f"Maximum parallel jobs on healthy GPU (default: {DEFAULT_MAX_PARALLEL})")
-    parser.add_argument("--gpu-temp-limit", type=int, default=GPU_TEMP_CRITICAL,
-                       help=f"GPU temperature limit for minimal parallelism (default: {GPU_TEMP_CRITICAL}°C)")
+    parser.add_argument("--max-workers", type=int, default=DEFAULT_MAX_WORKERS,
+                       help=f"Maximum worker threads (default: {DEFAULT_MAX_WORKERS})")
+    parser.add_argument("--min-workers", type=int, default=DEFAULT_MIN_WORKERS,
+                       help=f"Minimum worker threads (default: {DEFAULT_MIN_WORKERS})")
     parser.add_argument("--log-level", default="INFO",
                        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
                        help="Logging level (default: INFO)")
@@ -751,8 +945,8 @@ Log Files:
         logger,
         args.duration,
         config_path,
-        args.max_parallel,
-        args.gpu_temp_limit
+        args.max_workers,
+        args.min_workers
     )
 
     end_time = datetime.now()

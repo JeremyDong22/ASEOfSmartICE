@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
 """
 Table and Region State Detection System
-Version: 2.1.0
+Version: 3.0.0
 Last Updated: 2025-11-14
 
 Purpose: Unified system monitoring both table states and regional staff coverage
 Combines table-level monitoring (IDLE/BUSY/CLEANING) with division-level monitoring (staffed/unstaffed)
+
+Changes in v3.0.0:
+- Added first-second preprocessing to establish initial states
+- Before video playback starts, pause at first frame for 1 second
+- Run detection on first frame to initialize all table and division states
+- Ensures all ROIs have baseline states before debounce timer starts
+- Addresses issue where 1s debounce delay prevented immediate state establishment
 
 Changes in v2.1.0:
 - Added --fps parameter for configurable frame processing rate (default: 5 FPS)
@@ -26,6 +33,7 @@ Key Features:
 - Simultaneous table state and division state detection
 - Two-stage detection: YOLOv8m person detection + YOLO11n-cls staff classification
 - 1-second debounce for all state transitions
+- First-second preprocessing for initial state establishment
 
 ROI Hierarchy:
 - Division: Overall monitored area boundary
@@ -1497,6 +1505,64 @@ def process_video(video_path, person_detector, staff_classifier, config, output_
     # Create screenshots directory (organized by camera)
     screenshot_dir = db_dir / "screenshots"
     screenshot_dir.mkdir(parents=True, exist_ok=True)
+
+    # ===== FIRST-SECOND PREPROCESSING =====
+    # Establish initial states before video playback starts
+    print("\n" + "="*70)
+    print("First-Second Preprocessing")
+    print("="*70)
+    print("📌 Pausing at first frame to establish initial states...")
+
+    # Read first frame
+    ret, first_frame = cap.read()
+    if not ret:
+        print("❌ Could not read first frame")
+        cap.release()
+        out.release()
+        conn.close()
+        return False
+
+    # Reset to beginning for normal processing
+    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+
+    # Run detection pipeline on first frame
+    print("   Stage 1: Detecting persons in first frame...")
+    first_person_detections = detect_persons(person_detector, first_frame)
+    print(f"   ✓ Found {len(first_person_detections)} persons")
+
+    print("   Stage 2: Classifying persons...")
+    first_classified_detections = classify_persons(staff_classifier, first_frame, first_person_detections)
+
+    # Count classifications
+    waiters = sum(1 for d in first_classified_detections if d['class'] == 'waiter')
+    customers = sum(1 for d in first_classified_detections if d['class'] == 'customer')
+    unknown = sum(1 for d in first_classified_detections if d['class'] == 'unknown')
+    print(f"   ✓ Waiters: {waiters}, Customers: {customers}, Unknown: {unknown}")
+
+    # Assign to ROIs and update states
+    print("   Assigning detections to ROIs...")
+    walking_waiters, service_waiters = assign_detections_to_rois(
+        division_polygon, tables, sitting_areas, service_areas, first_classified_detections
+    )
+
+    # Initialize all table states based on first frame
+    initial_time = time.time()
+    for table in tables:
+        initial_state = table.determine_state()
+        table.state = initial_state
+        print(f"   {table.id}: {initial_state.value} (C:{table.customers_present} W:{table.waiters_present})")
+
+    # Initialize division state based on first frame
+    initial_division_state = division_tracker.determine_state(walking_waiters, service_waiters)
+    division_tracker.current_state = initial_division_state
+    print(f"   DIVISION: {initial_division_state.upper()} (Walking:{walking_waiters} Service:{service_waiters})")
+
+    # Sleep for 1 second to fill debounce buffer
+    print("\n   ⏳ Waiting 1 second to establish state buffer...")
+    time.sleep(STATE_DEBOUNCE_SECONDS)
+    print("   ✅ Initial states established!")
+    print("="*70 + "\n")
+    # ======================================
 
     # Process frames
     frame_idx = 0

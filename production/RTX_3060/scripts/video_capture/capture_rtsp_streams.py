@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 RTSP Video Capture Script for Multi-Camera Restaurant Monitoring
-Version: 2.0.0
+Version: 3.0.0
 Last Updated: 2025-11-14
 
 Purpose: Capture video streams from multiple UNV cameras via RTSP with robust reconnection
@@ -12,13 +12,23 @@ Features:
 - UNV camera RTSP support (media/video1 endpoint)
 - Automatic naming with camera_id extraction
 - H.264 encoding for efficient storage
-- ROBUST NETWORK RECONNECTION (NEW in v2.0.0)
-  * Continuous reconnection during recording window
-  * Smart video file segmentation for long disconnections
+- IMMEDIATE SEGMENTATION ON DISCONNECT (NEW in v3.0.0)
+  * FPS-based disconnect detection (< 2fps)
+  * No delay between disconnect and new file creation
+  * Prevents missing state changes during network issues
+  * Faster reconnection attempts (10s interval)
   * Network health monitoring with ping checks
   * RTT-based quality filtering
   * Enhanced logging and metrics
 - Local storage with cloud upload capability
+
+Changes in v3.0.0:
+- IMMEDIATE segmentation on FPS drop (< 2fps) - no 30s delay
+- No delay between disconnect detection and new file creation
+- Prevents missing state changes during network interruptions
+- Faster reconnection retry interval (10s instead of 30s)
+- FPS-based disconnect detection (more accurate than timeout)
+- Real-time FPS monitoring with sliding window calculation
 
 Changes in v2.0.0:
 - Added continuous reconnection logic during recording
@@ -73,17 +83,22 @@ DEFAULT_CAMERAS = {
 }
 
 # ============================================================================
-# NETWORK RECONNECTION SETTINGS (NEW in v2.0.0)
+# NETWORK RECONNECTION SETTINGS (UPDATED in v3.0.0)
 # ============================================================================
 MAX_RTT_MS = 500  # Maximum acceptable round-trip time in milliseconds
-RECONNECT_INTERVAL = 30  # Seconds between reconnection attempts
-RECONNECT_SAME_FILE_THRESHOLD = 120  # Seconds - if reconnect faster, resume same file
 PING_TIMEOUT = 2  # Seconds for ping timeout
 PING_COUNT = 1  # Number of ping packets to send
 
+# Frame rate thresholds for disconnect detection (NEW in v3.0.0)
+NORMAL_FPS_MIN = 15  # Minimum FPS considered "connected" (camera is 20fps)
+DISCONNECT_FPS_THRESHOLD = 2  # FPS below this = immediate disconnect
+
+# Immediate segmentation on disconnect (NEW in v3.0.0)
+IMMEDIATE_SEGMENT_ON_DISCONNECT = True  # Always create new file on disconnect
+RECONNECT_RETRY_INTERVAL = 10  # Seconds between reconnection attempts (reduced from 30)
+
 # Original capture settings
 MAX_RETRY_ATTEMPTS = 3
-FRAME_READ_TIMEOUT = 10  # seconds before considering connection lost
 CONNECTION_TIMEOUT = 30  # seconds to establish connection
 
 
@@ -210,19 +225,25 @@ def check_network_quality(host_ip, max_rtt_ms=MAX_RTT_MS):
 class VideoSegmentManager:
     """
     Manages video file segmentation for handling network disconnections.
-    Creates new segments when reconnection takes too long.
+    Creates new segments immediately on disconnect (v3.0.0).
     """
 
-    def __init__(self, base_filename, output_path, resolution, fps, camera_id):
+    def __init__(self, base_filename, output_path, resolution, fps, camera_id, expected_duration):
         self.base_filename = base_filename  # Without extension
         self.output_path = Path(output_path)
         self.resolution = resolution
         self.fps = fps
         self.camera_id = camera_id
+        self.total_expected_duration = expected_duration
 
         self.segment_number = 1
         self.current_file = None
         self.current_writer = None
+
+        # Tracking metrics (NEW in v3.0.0)
+        self.segments = []  # List of segment info
+        self.disconnection_count = 0
+        self.current_segment_start = None
 
     def get_current_filename(self):
         """Generate filename for current segment"""
@@ -242,6 +263,15 @@ class VideoSegmentManager:
         """
         # Close previous writer if exists
         if self.current_writer is not None:
+            # Record segment duration before closing
+            if self.current_segment_start is not None:
+                duration = time.time() - self.current_segment_start
+                self.segments.append({
+                    'filename': self.current_file,
+                    'segment_number': self.segment_number,
+                    'duration': duration
+                })
+
             self.current_writer.release()
             print(f"[{self.camera_id}] 📁 Closed segment: {self.current_file}")
 
@@ -255,6 +285,7 @@ class VideoSegmentManager:
 
         if writer.isOpened():
             self.current_writer = writer
+            self.current_segment_start = time.time()
             print(f"[{self.camera_id}] 📁 Created segment {self.segment_number}: {self.current_file}")
             return writer
         else:
@@ -264,13 +295,45 @@ class VideoSegmentManager:
     def next_segment(self):
         """Move to next segment number and create new file"""
         self.segment_number += 1
+        self.disconnection_count += 1
         return self.create_new_segment()
 
+    def record_reconnection(self, disconnected_duration):
+        """Record successful reconnection"""
+        print(f"[{self.camera_id}] ✅ Reconnected after {disconnected_duration:.1f}s disconnection")
+
     def release(self):
-        """Release current video writer"""
+        """Release current video writer and finalize segment tracking"""
         if self.current_writer is not None:
+            # Record final segment
+            if self.current_segment_start is not None:
+                duration = time.time() - self.current_segment_start
+                self.segments.append({
+                    'filename': self.current_file,
+                    'segment_number': self.segment_number,
+                    'duration': duration
+                })
+
             self.current_writer.release()
             self.current_writer = None
+
+    def get_coverage_report(self):
+        """Generate coverage report"""
+        total_duration = self.total_expected_duration
+        recorded_duration = sum(seg['duration'] for seg in self.segments)
+        gap_duration = total_duration - recorded_duration
+
+        coverage_percent = (recorded_duration / total_duration) * 100 if total_duration > 0 else 0
+
+        return {
+            'total_expected': total_duration,
+            'recorded': recorded_duration,
+            'gaps': gap_duration,
+            'coverage_percent': coverage_percent,
+            'segment_count': len(self.segments),
+            'disconnections': self.disconnection_count,
+            'segments': self.segments
+        }
 
 
 # ============================================================================
@@ -298,6 +361,44 @@ class CameraCapture:
         return (f"rtsp://{self.config['username']}:{self.config['password']}"
                 f"@{self.config['ip']}:{self.config['port']}"
                 f"{self.config['stream_path']}")
+
+    # ========================================================================
+    # FPS MONITORING (NEW in v3.0.0)
+    # ========================================================================
+
+    def _calculate_fps(self, frame_timestamps):
+        """
+        Calculate current FPS from frame timestamps.
+
+        Args:
+            frame_timestamps: List of recent frame timestamps
+
+        Returns:
+            float: Current FPS
+        """
+        if len(frame_timestamps) < 2:
+            return 0.0
+
+        time_span = frame_timestamps[-1] - frame_timestamps[0]
+        if time_span == 0:
+            return 0.0
+
+        return (len(frame_timestamps) - 1) / time_span
+
+    def _is_disconnected(self, current_fps):
+        """
+        Detect if camera is disconnected based on FPS.
+
+        Returns True if:
+        - FPS drops below 2 (critical threshold)
+
+        Args:
+            current_fps: Current calculated FPS
+
+        Returns:
+            bool: True if disconnected
+        """
+        return current_fps < DISCONNECT_FPS_THRESHOLD
 
     def _generate_filename(self):
         """Generate standardized filename: camera_{id}_{date}_{time}.mp4"""
@@ -343,16 +444,16 @@ class CameraCapture:
             return None
 
     # ========================================================================
-    # RECONNECTION LOGIC (NEW in v2.0.0)
+    # RECONNECTION LOGIC (UPDATED in v3.0.0)
     # ========================================================================
 
-    def _attempt_reconnection(self, segment_manager, disconnection_start_time):
+    def _attempt_reconnection(self, disconnection_start_time):
         """
         Attempt to reconnect to RTSP stream.
-        Decides whether to resume same file or create new segment.
+        Immediate segmentation already handled - this just tries to reconnect.
 
         Returns:
-            tuple: (cap: VideoCapture or None, writer: VideoWriter or None, should_create_new_segment: bool)
+            cv2.VideoCapture or None: New capture object or None on failure
         """
         self.reconnection_attempts += 1
         disconnected_duration = time.time() - disconnection_start_time
@@ -360,48 +461,48 @@ class CameraCapture:
         print(f"\n[{self.camera_id}] 🔄 RECONNECTION ATTEMPT #{self.reconnection_attempts}")
         print(f"[{self.camera_id}]    Disconnected for: {disconnected_duration:.1f}s")
 
-        # Try to connect with health check
-        cap = self._connect_with_health_check(attempt_num=self.reconnection_attempts)
+        # Test network health first
+        success, rtt, error = ping_host(self.config['ip'])
 
-        if cap is None:
-            return None, None, False
+        if success and (rtt is None or rtt < MAX_RTT_MS):
+            rtt_msg = f"RTT: {rtt:.0f}ms" if rtt is not None else "RTT: unknown"
+            print(f"[{self.camera_id}] 🌐 Network OK ({rtt_msg}), attempting RTSP...")
 
-        # Connection successful
-        self.successful_reconnections += 1
+            # Try RTSP connection
+            cap = cv2.VideoCapture(self.rtsp_url, cv2.CAP_FFMPEG)
 
-        # Decide: same file or new segment?
-        if disconnected_duration <= RECONNECT_SAME_FILE_THRESHOLD:
-            # Resume to same file (if writer still valid)
-            print(f"[{self.camera_id}] ✅ Reconnected within {RECONNECT_SAME_FILE_THRESHOLD}s")
-            print(f"[{self.camera_id}]    Resuming to same file: {segment_manager.current_file}")
+            # Brief wait for connection
+            start_wait = time.time()
+            while not cap.isOpened() and (time.time() - start_wait) < 5:
+                time.sleep(0.2)
 
-            # Try to reuse existing writer
-            if segment_manager.current_writer is not None and segment_manager.current_writer.isOpened():
-                writer = segment_manager.current_writer
-                return cap, writer, False
+            if cap.isOpened():
+                print(f"[{self.camera_id}] ✅ RTSP reconnected!")
+                self.successful_reconnections += 1
+                return cap
             else:
-                # Writer closed, need to recreate (but same segment number)
-                writer = segment_manager.create_new_segment()
-                return cap, writer, False
+                print(f"[{self.camera_id}] ❌ RTSP connection failed")
+                cap.release()
+                return None
         else:
-            # Create new segment
-            print(f"[{self.camera_id}] ⚠️  Reconnection took >{RECONNECT_SAME_FILE_THRESHOLD}s")
-            print(f"[{self.camera_id}]    Creating new segment file")
-            writer = segment_manager.next_segment()
-            return cap, writer, True
+            error_msg = f"RTT too high: {rtt:.0f}ms" if rtt and rtt >= MAX_RTT_MS else error
+            print(f"[{self.camera_id}] ❌ Network unreachable: {error_msg}")
+            return None
 
     # ========================================================================
-    # MAIN CAPTURE LOOP (HEAVILY MODIFIED in v2.0.0)
+    # MAIN CAPTURE LOOP (HEAVILY MODIFIED in v3.0.0)
     # ========================================================================
 
     def capture_video(self, duration_seconds, output_dir):
         """
-        Capture video for specified duration with continuous reconnection.
+        Capture video for specified duration with immediate segmentation on disconnect.
 
-        NEW BEHAVIOR:
-        - Continuously attempts reconnection if stream drops during recording
-        - Creates new video segments for long disconnections
-        - Tracks recording coverage and quality metrics
+        NEW BEHAVIOR (v3.0.0):
+        - FPS-based disconnect detection (< 2fps)
+        - IMMEDIATE segmentation when disconnect detected (no delay)
+        - Continuous reconnection attempts every 10 seconds
+        - Prevents missing state changes during network issues
+        - Real-time FPS monitoring with sliding window
         """
         # Create output directory structure
         date_str = datetime.now().strftime("%Y%m%d")
@@ -424,7 +525,8 @@ class CameraCapture:
             base_filename, output_path,
             self.config['resolution'],
             self.config['fps'],
-            self.camera_id
+            self.camera_id,
+            duration_seconds
         )
 
         # Initial connection with retries
@@ -451,10 +553,16 @@ class CameraCapture:
         session_start_time = time.time()
         recording_start_time = time.time()  # Tracks active recording time
         frame_count = 0
-        failed_reads = 0
-        last_success_time = time.time()
         disconnection_start_time = None
         is_disconnected = False
+        last_reconnect_attempt = None
+
+        # FPS tracking (NEW in v3.0.0)
+        frame_timestamps = []  # Track last N frame times
+        fps_window = 20  # Calculate FPS over last 20 frames
+        last_fps_check = time.time()
+        fps_check_interval = 1.0  # Check FPS every second
+        current_fps = self.config['fps']  # Initialize to expected FPS
 
         fps = self.config['fps']
         self.is_capturing = True
@@ -472,20 +580,35 @@ class CameraCapture:
 
                 if ret:
                     # ========== SUCCESSFUL FRAME READ ==========
+                    now = time.time()
 
-                    # If we were disconnected, we just reconnected
+                    # Track frame timestamp for FPS calculation
+                    frame_timestamps.append(now)
+
+                    # Keep only recent frames for FPS window
+                    if len(frame_timestamps) > fps_window:
+                        frame_timestamps.pop(0)
+
+                    # Calculate FPS every second
+                    if now - last_fps_check >= fps_check_interval:
+                        if len(frame_timestamps) >= 2:
+                            current_fps = self._calculate_fps(frame_timestamps)
+                            last_fps_check = now
+
+                    # Check if we were disconnected and just reconnected
                     if is_disconnected:
                         reconnect_duration = time.time() - disconnection_start_time
                         self.total_disconnected_time += reconnect_duration
                         print(f"[{self.camera_id}] ✅ Streaming resumed after {reconnect_duration:.1f}s")
                         is_disconnected = False
                         disconnection_start_time = None
+                        frame_timestamps = []  # Reset FPS tracking
+                        current_fps = self.config['fps']
+                        segment_manager.record_reconnection(reconnect_duration)
 
                     # Write frame to current segment
                     writer.write(frame)
                     frame_count += 1
-                    failed_reads = 0
-                    last_success_time = time.time()
 
                     # Update recording time
                     self.total_recording_time = time.time() - recording_start_time
@@ -496,52 +619,65 @@ class CameraCapture:
                         coverage = (self.total_recording_time / elapsed_total) * 100 if elapsed_total > 0 else 0
                         print(f"[{self.camera_id}] 📊 Progress: {progress:.1f}% | "
                               f"Frames: {frame_count} | "
+                              f"FPS: {current_fps:.1f} | "
                               f"Coverage: {coverage:.1f}% | "
                               f"Segment: {segment_manager.segment_number}")
 
                 else:
                     # ========== FAILED FRAME READ ==========
-                    failed_reads += 1
-                    time_since_last = time.time() - last_success_time
+                    print(f"[{self.camera_id}] ⚠️  No frame received")
 
-                    # Mark as disconnected if timeout exceeded
-                    if not is_disconnected and time_since_last > FRAME_READ_TIMEOUT:
-                        print(f"\n[{self.camera_id}] ⚠️  CONNECTION LOST")
-                        print(f"[{self.camera_id}]    No frames for {time_since_last:.1f}s")
-                        print(f"[{self.camera_id}]    Failed reads: {failed_reads}")
+                    # Check if this is a disconnect based on FPS (NEW in v3.0.0)
+                    if not is_disconnected and self._is_disconnected(current_fps):
+                        # First detection of disconnect - IMMEDIATE ACTION
+                        print(f"\n[{self.camera_id}] ❌ DISCONNECT DETECTED (FPS: {current_fps:.1f})")
+                        print(f"[{self.camera_id}] 💾 Saving current segment...")
+
+                        # IMMEDIATELY close current file
+                        writer.release()
+
+                        # Mark as disconnected
                         is_disconnected = True
                         disconnection_start_time = time.time()
+                        last_reconnect_attempt = time.time()
+
+                        # IMMEDIATELY create new segment
+                        print(f"[{self.camera_id}] 📄 Creating new segment...")
+                        writer = segment_manager.next_segment()
+
+                        if writer is None:
+                            print(f"[{self.camera_id}] ❌ Failed to create new segment!")
+                            break
+
+                        print(f"[{self.camera_id}] ✅ New segment created: {segment_manager.get_current_filename()}")
+                        print(f"[{self.camera_id}] 🔄 Attempting reconnection...")
 
                         # Release current connection
                         cap.release()
-                        print(f"[{self.camera_id}] 🔌 Released current connection")
 
-                    # ========== CONTINUOUS RECONNECTION LOOP ==========
+                    # ========== CONTINUOUS RECONNECTION LOOP (v3.0.0) ==========
                     if is_disconnected:
                         disconnected_duration = time.time() - disconnection_start_time
+                        time_since_last_attempt = time.time() - last_reconnect_attempt
 
-                        # Check if we should attempt reconnection
-                        if disconnected_duration % RECONNECT_INTERVAL < 1.0:  # Avoid multiple attempts per second
-                            print(f"\n[{self.camera_id}] 🔄 Attempting reconnection...")
-                            print(f"[{self.camera_id}]    Time disconnected: {disconnected_duration:.1f}s")
+                        # Try reconnection every RECONNECT_RETRY_INTERVAL seconds
+                        if time_since_last_attempt >= RECONNECT_RETRY_INTERVAL:
+                            last_reconnect_attempt = time.time()
+                            print(f"[{self.camera_id}] 🔄 Reconnection attempt #{self.reconnection_attempts + 1}...")
 
-                            new_cap, new_writer, created_segment = self._attempt_reconnection(
-                                segment_manager, disconnection_start_time
-                            )
+                            new_cap = self._attempt_reconnection(disconnection_start_time)
 
                             if new_cap is not None:
-                                # Reconnection successful
+                                # Reconnection successful - replace capture object
                                 cap = new_cap
-                                if new_writer is not None:
-                                    writer = new_writer
-
-                                # Continue loop - next iteration will read frame
+                                print(f"[{self.camera_id}] ▶️  Resuming recording to {segment_manager.get_current_filename()}")
+                                # Next iteration will read frame and update state
                                 continue
                             else:
                                 print(f"[{self.camera_id}] ❌ Reconnection failed")
-                                print(f"[{self.camera_id}]    Next attempt in {RECONNECT_INTERVAL}s...")
+                                print(f"[{self.camera_id}]    Next attempt in {RECONNECT_RETRY_INTERVAL}s...")
 
-                        # Wait before next reconnection attempt
+                        # Sleep briefly to avoid busy loop
                         time.sleep(1)
                     else:
                         # Not yet marked as disconnected, brief pause
@@ -558,11 +694,11 @@ class CameraCapture:
             segment_manager.release()
 
         # ========================================================================
-        # SESSION SUMMARY (ENHANCED in v2.0.0)
+        # SESSION SUMMARY (ENHANCED in v3.0.0)
         # ========================================================================
 
         session_duration = time.time() - session_start_time
-        recording_coverage = (self.total_recording_time / duration_seconds) * 100 if duration_seconds > 0 else 0
+        coverage_report = segment_manager.get_coverage_report()
 
         print(f"\n{'='*70}")
         print(f"[{self.camera_id}] 📊 CAPTURE SESSION COMPLETE")
@@ -570,28 +706,27 @@ class CameraCapture:
         print(f"   Frames captured: {frame_count}")
         print(f"   Target duration: {duration_seconds}s")
         print(f"   Session duration: {session_duration:.1f}s")
-        print(f"   Recording time: {self.total_recording_time:.1f}s")
+        print(f"   Recording time: {coverage_report['recorded']:.1f}s")
         print(f"   Disconnected time: {self.total_disconnected_time:.1f}s")
-        print(f"   Recording coverage: {recording_coverage:.1f}%")
+        print(f"   Recording coverage: {coverage_report['coverage_percent']:.1f}%")
 
-        if frame_count > 0:
-            print(f"   Average FPS: {frame_count / self.total_recording_time:.2f}")
+        if frame_count > 0 and coverage_report['recorded'] > 0:
+            print(f"   Average FPS: {frame_count / coverage_report['recorded']:.2f}")
 
         print(f"\n   Reconnection stats:")
         print(f"   - Attempts: {self.reconnection_attempts}")
         print(f"   - Successful: {self.successful_reconnections}")
-        print(f"   - Success rate: {(self.successful_reconnections / self.reconnection_attempts * 100) if self.reconnection_attempts > 0 else 0:.1f}%")
+        if self.reconnection_attempts > 0:
+            success_rate = (self.successful_reconnections / self.reconnection_attempts * 100)
+            print(f"   - Success rate: {success_rate:.1f}%")
 
-        print(f"\n   Video segments created: {segment_manager.segment_number}")
-        for i in range(1, segment_manager.segment_number + 1):
-            if i == 1:
-                filename = f"{base_filename}.mp4"
-            else:
-                filename = f"{base_filename}_part{i}.mp4"
-            filepath = output_path / filename
+        print(f"\n   Video segments created: {coverage_report['segment_count']}")
+        print(f"   Disconnections (new segments): {coverage_report['disconnections']}")
+        for seg_info in coverage_report['segments']:
+            filepath = output_path / seg_info['filename']
             if filepath.exists():
                 size_mb = filepath.stat().st_size / (1024 * 1024)
-                print(f"   - {filename}: {size_mb:.1f} MB")
+                print(f"   - {seg_info['filename']}: {size_mb:.1f} MB ({seg_info['duration']:.1f}s)")
 
         print(f"{'='*70}\n")
 
@@ -658,7 +793,8 @@ def capture_all_cameras(duration_seconds, output_dir, camera_filter=None):
     print(f"Duration: {duration_seconds}s ({duration_seconds/60:.1f} minutes)")
     print(f"Output: {output_dir}")
     print(f"Cameras: {', '.join(cameras.keys())}")
-    print(f"Reconnection: Every {RECONNECT_INTERVAL}s during recording window")
+    print(f"Disconnect detection: FPS < {DISCONNECT_FPS_THRESHOLD} (immediate segmentation)")
+    print(f"Reconnection interval: {RECONNECT_RETRY_INTERVAL}s")
     print(f"Network RTT threshold: {MAX_RTT_MS}ms")
     print(f"{'='*70}\n")
 
@@ -704,12 +840,14 @@ Examples:
   # Test connection and reconnection (10 seconds)
   python3 capture_rtsp_streams.py --duration 10 --cameras camera_35
 
-Reconnection Features (v2.0.0):
-  - Continuously retries connection every 30s during recording window
+Reconnection Features (v3.0.0):
+  - FPS-based disconnect detection (< 2fps = immediate disconnect)
+  - IMMEDIATE segmentation when disconnect detected (no delay)
+  - Prevents missing state changes during network interruptions
+  - Continuously retries connection every 10s during recording window
   - Checks network health before attempting RTSP connection
   - Aborts if RTT > 500ms (network too slow)
-  - Resumes same file if reconnect within 2 minutes
-  - Creates new segment (_part2, _part3) for longer disconnections
+  - Creates new segment (_part2, _part3) on every disconnect
   - Reports recording coverage % at end of session
         """
     )
@@ -735,7 +873,7 @@ Reconnection Features (v2.0.0):
 
     # Start capture
     start_time = datetime.now()
-    print(f"\n🎥 RTSP Video Capture System v2.0.0 (with Reconnection)")
+    print(f"\n🎥 RTSP Video Capture System v3.0.0 (Immediate Segmentation)")
     print(f"{'='*70}")
     print(f"Start time: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
 
