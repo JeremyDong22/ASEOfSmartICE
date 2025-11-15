@@ -1,22 +1,37 @@
 #!/usr/bin/env python3
 """
 ASE Restaurant Surveillance System - Main Entry Point
-Version: 1.0.0
+Version: 2.0.0
 Created: 2025-11-15
+Updated: 2025-11-16
 
 Purpose:
-- Main entry point for the entire RTX 3060 surveillance application
-- Guides user through initial setup or starts monitoring
-- Checks prerequisites and system health
+- Main entry point for the AUTOMATED RTX 3060 surveillance system
+- Guides user through initial setup OR starts automated service
+- Fully automated operation after initialization
 
 Usage:
-    python3 start.py
+    python3 start.py                    # Start automated service
+    python3 start.py --status           # Check service status
+    python3 start.py --stop             # Stop service
+    python3 start.py --foreground       # Run in foreground (debug mode)
 
 Workflow:
     1. Check if system is initialized (location + cameras registered)
     2. If not initialized → Run deployment wizard
-    3. If initialized → Show status and start options
-    4. Verify system health before starting
+    3. If initialized → Start automated surveillance service
+    4. Service automatically manages:
+       - Video capture (11 AM - 9 PM)
+       - Video processing (11 PM - 6 AM)
+       - System monitoring (disk, GPU)
+       - Database sync (hourly)
+
+Changes in v2.0.0:
+- Removed interactive menu (was manual operation)
+- Added automated service daemon
+- Auto-starts all components based on time schedule
+- Background monitoring threads
+- No manual intervention needed
 """
 
 import os
@@ -37,13 +52,15 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 class SurveillanceApp:
     """
     Main application controller
-    Version: 1.0.0
+    Version: 2.0.0
     """
 
-    def __init__(self):
+    def __init__(self, mode='start', foreground=False):
         self.initialized = False
         self.location_id = None
         self.camera_count = 0
+        self.mode = mode
+        self.foreground = foreground
 
     def run(self):
         """Main application flow"""
@@ -59,6 +76,7 @@ class SurveillanceApp:
             choice = input("Run initialization wizard? (y/n): ").strip().lower()
             if choice == 'y':
                 self.run_initialization()
+                # After initialization, continue to start service
             else:
                 print("\n⚠️  System must be initialized before use.")
                 print("Run: python3 scripts/deployment/initialize_restaurant.py")
@@ -67,8 +85,15 @@ class SurveillanceApp:
         # Show system status
         self.show_status()
 
-        # Main menu
-        self.show_main_menu()
+        # Execute command based on mode
+        if self.mode == 'start':
+            self.start_service()
+        elif self.mode == 'stop':
+            self.stop_service()
+        elif self.mode == 'status':
+            self.check_service_status()
+        elif self.mode == 'restart':
+            self.restart_service()
 
     def print_banner(self):
         """Print application banner"""
@@ -163,182 +188,141 @@ class SurveillanceApp:
 
         print("=" * 70 + "\n")
 
-    def show_main_menu(self):
-        """Show main menu and handle user choice"""
-        while True:
-            print("\n🎯 Main Menu")
-            print("=" * 70)
-            print("1. 📹 Start Video Capture (RTSP Recording)")
-            print("2. 🎬 Process Videos (AI Detection)")
-            print("3. 🔧 System Configuration")
-            print("4. 📊 View System Logs")
-            print("5. 🏥 Health Check")
-            print("6. ❌ Exit")
-            print("=" * 70)
+    def start_service(self):
+        """Start the automated surveillance service"""
+        print("\n🚀 Starting Automated Surveillance Service")
+        print("=" * 70)
+        print("\n📋 Service will automatically:")
+        print("  ✅ Capture video: 11 AM - 9 PM")
+        print("  ✅ Process video: 11 PM - 6 AM")
+        print("  ✅ Monitor disk space: Every hour")
+        print("  ✅ Monitor GPU: Every 5 minutes")
+        print("  ✅ Sync database: Every hour")
+        print("=" * 70)
 
-            choice = input("\nSelect option (1-6): ").strip()
+        service_script = SCRIPTS_DIR / "orchestration" / "surveillance_service.py"
 
-            if choice == '1':
-                self.start_video_capture()
-            elif choice == '2':
-                self.start_video_processing()
-            elif choice == '3':
-                self.system_configuration()
-            elif choice == '4':
-                self.view_logs()
-            elif choice == '5':
-                self.health_check()
-            elif choice == '6':
-                print("\n👋 Exiting ASE Surveillance System\n")
-                sys.exit(0)
+        if not service_script.exists():
+            print(f"\n❌ Service script not found: {service_script}")
+            print("Please ensure the automated service is installed.")
+            sys.exit(1)
+
+        print("\nStarting service...")
+
+        if self.foreground:
+            print("\n🔍 Running in FOREGROUND mode (Ctrl+C to stop)")
+            print("Logs will be displayed below:\n")
+            os.system(f"python3 {service_script} start --foreground")
+        else:
+            print("\n🔄 Running in BACKGROUND mode")
+            print("View logs: tail -f logs/surveillance_service.log")
+            print("Check status: python3 start.py --status")
+            print("Stop service: python3 start.py --stop\n")
+
+            # Start in background
+            os.system(f"nohup python3 {service_script} start > /dev/null 2>&1 &")
+
+            # Wait a moment and check if it started
+            import time
+            time.sleep(2)
+
+            pid_file = PROJECT_ROOT / "surveillance_service.pid"
+            if pid_file.exists():
+                with open(pid_file) as f:
+                    pid = f.read().strip()
+                print(f"✅ Service started successfully (PID: {pid})")
+                print("\n💡 The system is now fully automated. No manual intervention needed!")
             else:
-                print("\n❌ Invalid option. Please select 1-6.")
+                print("❌ Service failed to start. Check logs/surveillance_service.log")
 
-    def start_video_capture(self):
-        """Start RTSP video capture"""
-        print("\n📹 Starting Video Capture...")
+    def stop_service(self):
+        """Stop the surveillance service"""
+        print("\n🛑 Stopping Surveillance Service")
         print("=" * 70)
 
-        capture_script = SCRIPTS_DIR / "video_capture" / "capture_rtsp_streams.py"
+        service_script = SCRIPTS_DIR / "orchestration" / "surveillance_service.py"
+        os.system(f"python3 {service_script} stop")
 
-        if not capture_script.exists():
-            print(f"❌ Capture script not found: {capture_script}")
-            return
-
-        print(f"\nStarting: {capture_script}")
-        print("Press Ctrl+C to stop\n")
-
-        os.system(f"python3 {capture_script}")
-
-    def start_video_processing(self):
-        """Start video processing"""
-        print("\n🎬 Video Processing Options")
-        print("=" * 70)
-        print("1. Process All Unprocessed Videos")
-        print("2. Process Specific Video")
-        print("3. Interactive ROI Setup")
-        print("4. Back to Main Menu")
-
-        choice = input("\nSelect option (1-4): ").strip()
-
-        if choice == '1':
-            orchestrator = SCRIPTS_DIR / "orchestration" / "process_videos_orchestrator.py"
-            os.system(f"python3 {orchestrator}")
-        elif choice == '2':
-            video_path = input("Video path: ").strip()
-            detection_script = SCRIPTS_DIR / "video_processing" / "table_and_region_state_detection.py"
-            os.system(f"python3 {detection_script} --video {video_path}")
-        elif choice == '3':
-            print("\nLaunching Interactive ROI Setup...")
-            os.system(f"cd {SCRIPTS_DIR} && ./run_interactive.sh")
-        elif choice == '4':
-            return
-
-    def sync_to_cloud(self):
-        """Sync data to Supabase"""
-        print("\n☁️  Supabase Cloud Sync")
-        print("=" * 70)
-        print("1. Hourly Sync (last 2 hours)")
-        print("2. Full Sync (all unsynced)")
-        print("3. Dry Run (test without uploading)")
-        print("4. Back to Main Menu")
-
-        choice = input("\nSelect option (1-4): ").strip()
-
-        sync_script = SCRIPTS_DIR / "database_sync" / "sync_to_supabase.py"
-
-        if choice == '1':
-            os.system(f"python3 {sync_script} --mode hourly")
-        elif choice == '2':
-            os.system(f"python3 {sync_script} --mode full")
-        elif choice == '3':
-            os.system(f"python3 {sync_script} --mode hourly --dry-run")
-        elif choice == '4':
-            return
-
-    def system_configuration(self):
-        """System configuration menu"""
-        print("\n🔧 System Configuration")
-        print("=" * 70)
-        print("1. View Current Configuration")
-        print("2. Re-run Restaurant Initialization")
-        print("3. Update Camera Configuration")
-        print("4. Back to Main Menu")
-
-        choice = input("\nSelect option (1-4): ").strip()
-
-        if choice == '1':
-            config_dir = SCRIPTS_DIR / "config"
-            os.system(f"ls -lh {config_dir}")
-        elif choice == '2':
-            init_script = SCRIPTS_DIR / "deployment" / "initialize_restaurant.py"
-            os.system(f"python3 {init_script}")
-        elif choice == '3':
-            print("\nEdit: scripts/config/cameras_config.json")
-        elif choice == '4':
-            return
-
-    def view_logs(self):
-        """View system logs"""
-        print("\n📊 System Logs")
-        print("=" * 70)
-
-        # Check common log locations
-        log_paths = [
-            "/var/log/ase_sync.log",
-            PROJECT_ROOT / "logs" / "system.log"
-        ]
-
-        for log_path in log_paths:
-            if Path(log_path).exists():
-                print(f"\nShowing: {log_path}")
-                os.system(f"tail -50 {log_path}")
-                return
-
-        print("\n⚠️  No log files found")
-
-    def health_check(self):
-        """Run system health check"""
-        print("\n🏥 System Health Check")
+    def check_service_status(self):
+        """Check service status"""
+        print("\n📊 Service Status Check")
         print("=" * 70 + "\n")
 
-        # Disk space
-        monitoring_script = SCRIPTS_DIR / "monitoring" / "check_disk_space.py"
-        if monitoring_script.exists():
-            os.system(f"python3 {monitoring_script} --check")
+        service_script = SCRIPTS_DIR / "orchestration" / "surveillance_service.py"
+        os.system(f"python3 {service_script} status")
 
-        # GPU
-        gpu_script = SCRIPTS_DIR / "monitoring" / "monitor_gpu.py"
-        if gpu_script.exists():
-            os.system(f"python3 {gpu_script}")
+        # Show recent logs
+        log_file = PROJECT_ROOT / "logs" / "surveillance_service.log"
+        if log_file.exists():
+            print("\n📋 Recent Logs (last 20 lines):")
+            print("=" * 70)
+            os.system(f"tail -20 {log_file}")
 
-        # Database
-        print("\nDatabase Status:")
-        try:
-            conn = sqlite3.connect(str(DB_PATH))
-            cursor = conn.cursor()
+    def restart_service(self):
+        """Restart the surveillance service"""
+        print("\n🔄 Restarting Surveillance Service")
+        print("=" * 70)
 
-            cursor.execute("SELECT COUNT(*) FROM sessions")
-            sessions = cursor.fetchone()[0]
-
-            cursor.execute("SELECT COUNT(*) FROM division_states")
-            division_states = cursor.fetchone()[0]
-
-            cursor.execute("SELECT COUNT(*) FROM table_states")
-            table_states = cursor.fetchone()[0]
-
-            print(f"  Sessions: {sessions}")
-            print(f"  Division states: {division_states}")
-            print(f"  Table states: {table_states}")
-
-            conn.close()
-        except Exception as e:
-            print(f"  ❌ Database error: {e}")
+        service_script = SCRIPTS_DIR / "orchestration" / "surveillance_service.py"
+        os.system(f"python3 {service_script} restart")
 
 
 def main():
     """Main entry point"""
-    app = SurveillanceApp()
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="ASE Restaurant Surveillance System - Automated Service",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Start automated service (default)
+  python3 start.py
+
+  # Check service status
+  python3 start.py --status
+
+  # Stop service
+  python3 start.py --stop
+
+  # Restart service
+  python3 start.py --restart
+
+  # Run in foreground (debug mode)
+  python3 start.py --foreground
+
+After initialization, the system runs FULLY AUTOMATICALLY:
+- Video capture: 11 AM - 9 PM (automatic)
+- Video processing: 11 PM - 6 AM (automatic)
+- System monitoring: Continuous (automatic)
+- Database sync: Hourly (automatic)
+
+NO manual intervention required!
+        """
+    )
+
+    parser.add_argument("--status", action="store_true",
+                       help="Check service status")
+    parser.add_argument("--stop", action="store_true",
+                       help="Stop service")
+    parser.add_argument("--restart", action="store_true",
+                       help="Restart service")
+    parser.add_argument("--foreground", action="store_true",
+                       help="Run in foreground (don't daemonize)")
+
+    args = parser.parse_args()
+
+    # Determine mode
+    if args.status:
+        mode = 'status'
+    elif args.stop:
+        mode = 'stop'
+    elif args.restart:
+        mode = 'restart'
+    else:
+        mode = 'start'
+
+    app = SurveillanceApp(mode=mode, foreground=args.foreground)
 
     try:
         app.run()

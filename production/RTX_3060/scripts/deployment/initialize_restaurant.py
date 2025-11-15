@@ -384,7 +384,11 @@ class RestaurantInitializer:
         self.conn.commit()
 
     def save_configuration_files(self):
-        """Save location and camera configuration to JSON files"""
+        """Save location and camera configuration to JSON files
+
+        Version: 1.1.0
+        Changes: Fixed cameras_config.json format for capture_rtsp_streams.py compatibility
+        """
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
         # Location config
@@ -393,20 +397,53 @@ class RestaurantInitializer:
             json.dump(self.location_info, f, indent=2)
         print(f"  ✅ Location config: {location_config_path.name}")
 
-        # Cameras config
+        # Cameras config (full database format)
         cameras_config_path = CONFIG_DIR / f"{self.location_id}_cameras.json"
         with open(cameras_config_path, 'w') as f:
             json.dump(self.cameras, f, indent=2)
         print(f"  ✅ Cameras config: {cameras_config_path.name}")
 
-        # Also update the main cameras_config.json
+        # Main cameras_config.json (for capture_rtsp_streams.py)
         main_cameras_config = CONFIG_DIR / "cameras_config.json"
-        cameras_simple = {
-            cam['camera_id']: cam['camera_ip_address']
-            for cam in self.cameras
-        }
+
+        # Convert database format to capture script format
+        cameras_for_capture = {}
+        for cam in self.cameras:
+            # Parse resolution if provided
+            resolution = [2592, 1944]  # Default
+            if cam.get('resolution'):
+                try:
+                    width, height = cam['resolution'].split('x')
+                    resolution = [int(width), int(height)]
+                except:
+                    pass  # Use default
+
+            # Parse RTSP endpoint to extract stream_path
+            rtsp_endpoint = cam.get('rtsp_endpoint', '')
+            # Extract path after port (e.g., /media/video1 or /cam/realmonitor...)
+            if '://' in rtsp_endpoint:
+                # Format: rtsp://ip:port/path...
+                path_part = rtsp_endpoint.split('/', 3)[-1] if rtsp_endpoint.count('/') >= 3 else 'media/video1'
+                stream_path = '/' + path_part
+            else:
+                stream_path = '/media/video1'  # Default UNV stream path
+
+            cameras_for_capture[cam['camera_id']] = {
+                'ip': cam['camera_ip_address'],
+                'port': 554,  # Default RTSP port
+                'username': 'admin',  # Default username (TODO: make configurable)
+                'password': '123456',  # Default password (TODO: make configurable)
+                'stream_path': stream_path,
+                'resolution': resolution,
+                'fps': 20,  # Default FPS
+                'division_name': cam.get('division_name', ''),
+                'location_id': cam['location_id'],
+                'enabled': cam.get('status', 'active') == 'active',
+                'notes': cam.get('camera_name', '')
+            }
+
         with open(main_cameras_config, 'w') as f:
-            json.dump(cameras_simple, f, indent=2)
+            json.dump(cameras_for_capture, f, indent=2)
         print(f"  ✅ Main cameras config: {main_cameras_config.name}")
 
     def sync_to_supabase(self):
