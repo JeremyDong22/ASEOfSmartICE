@@ -10,14 +10,30 @@ Production deployment folder for RTX 3060 machine at 野百灵火锅店 (Ye Bai 
 
 ## Quick Start - New Deployment
 
-**For first-time deployment at restaurant location:**
+**Main Entry Point (Recommended):**
 
 ```bash
-cd /path/to/production/RTX_3060/scripts/deployment
-./initialize_deployment.sh
+cd /path/to/production/RTX_3060
+python3 start.py
 ```
 
-This interactive wizard guides you through prerequisite checks, camera configuration, ROI setup, and system verification with automatic error handling.
+This is the main application entry point that:
+- Checks if system is initialized
+- Guides you through setup if needed
+- Provides interactive menu for all operations
+
+**Manual Deployment:**
+
+```bash
+# Step 1: Migrate database to new schema
+python3 scripts/deployment/migrate_database.py --backup
+
+# Step 2: Initialize restaurant location and cameras
+python3 scripts/deployment/initialize_restaurant.py
+
+# Step 3: Run main application
+python3 start.py
+```
 
 ## Business Context
 
@@ -69,18 +85,25 @@ This interactive wizard guides you through prerequisite checks, camera configura
 
 ```
 production/RTX_3060/
+├── start.py             # 🚀 MAIN ENTRY POINT - Start here!
 ├── scripts/              # Production scripts (feature-based organization)
+│   ├── deployment/          # 🔧 Initial setup and deployment
+│   │   ├── initialize_restaurant.py  # Interactive wizard: location + cameras
+│   │   ├── migrate_database.py       # Database schema migration
+│   │   └── DEPLOYMENT_GUIDE.md       # Complete deployment instructions
+│   ├── database_sync/       # 📊 Database and cloud synchronization
+│   │   ├── batch_db_writer.py        # Batch insert (100× faster)
+│   │   └── sync_to_supabase.py       # Hourly cloud sync (DB only)
 │   ├── camera_testing/      # Camera connection testing
 │   ├── video_capture/       # RTSP stream recording
 │   ├── video_processing/    # Detection and analysis (main system)
 │   ├── orchestration/       # Multi-camera batch processing
 │   ├── time_sync/           # NTP synchronization
-│   ├── maintenance/         # Cleanup and monitoring
+│   ├── maintenance/         # General cleanup scripts
 │   ├── monitoring/          # System health monitoring
 │   │   ├── check_disk_space.py      # Disk space monitoring with smart cleanup
 │   │   ├── monitor_gpu.py           # GPU temperature and utilization
 │   │   └── system_health.py         # Comprehensive health check
-│   ├── deployment/          # Setup and configuration
 │   ├── config/              # Configuration files
 │   │   ├── cameras_config.json       # Camera IP addresses
 │   │   └── table_region_config.json  # ROI configuration (5 tables)
@@ -88,9 +111,11 @@ production/RTX_3060/
 ├── models/               # Trained YOLO models (53.1 MB total)
 │   ├── yolov8m.pt                          # Person detector
 │   └── waiter_customer_classifier.pt       # Staff classifier
-├── db/                   # SQLite database + screenshots
-│   ├── detection_data.db                   # State change logs
-│   └── screenshots/[session_id]/           # Auto-saved screenshots
+├── db/                   # Database and documentation
+│   ├── detection_data.db                   # Local SQLite database
+│   ├── database_schema.sql                 # Database schema (v2.0.0)
+│   ├── CLAUDE.md                           # Cloud database documentation
+│   └── screenshots/{camera_id}/{date}/     # Auto-saved screenshots
 ├── results/              # Processed video outputs
 └── videos/               # Input video files
 ```
