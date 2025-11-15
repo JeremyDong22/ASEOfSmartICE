@@ -92,7 +92,10 @@ class SurveillanceService:
         signal.signal(signal.SIGINT, self.signal_handler)
 
     def setup_logging(self):
-        """Configure logging"""
+        """Configure logging
+
+        Note: Log cleanup is handled by scripts/maintenance/cleanup_logs.sh
+        """
         LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 
         logging.basicConfig(

@@ -100,6 +100,7 @@ check_prerequisites() {
         "video_capture/capture_rtsp_streams.py"
         "orchestration/process_videos_orchestrator.py"
         "maintenance/cleanup_old_videos.sh"
+        "maintenance/cleanup_logs.sh"
         "time_sync/verify_time_sync.sh"
         "monitoring/check_disk_space.py"
     )
@@ -114,7 +115,7 @@ check_prerequisites() {
     done
 
     # Check if scripts are executable
-    for script in "maintenance/cleanup_old_videos.sh" "time_sync/verify_time_sync.sh"; do
+    for script in "maintenance/cleanup_old_videos.sh" "maintenance/cleanup_logs.sh" "time_sync/verify_time_sync.sh"; do
         if [ -x "$SCRIPT_DIR/$script" ]; then
             print_success "$script is executable"
         else
@@ -237,10 +238,10 @@ CRONEOF
 # ============================================================================
 
 # Daily cleanup at 3 AM: Remove videos older than 2 days
-0 3 * * * cd $PROJECT_DIR && bash maintenance/cleanup_old_videos.sh --force >> $PROJECT_DIR/logs/cleanup.log 2>&1
+0 3 * * * cd $PROJECT_DIR && bash maintenance/cleanup_old_videos.sh --force >> $PROJECT_DIR/logs/cleanup_videos.log 2>&1
 
-# Weekly log rotation: Remove logs older than 14 days (every Sunday at 4 AM)
-0 4 * * 0 find $PROJECT_DIR/logs -name "*.log" -type f -mtime +14 -delete 2>&1 | head -20
+# Daily log cleanup at 2 AM: Keep last 30 days, max 500MB
+0 2 * * * cd $PROJECT_DIR && bash scripts/maintenance/cleanup_logs.sh --force >> $PROJECT_DIR/logs/cleanup_logs.log 2>&1
 
 CRONEOF
 
@@ -442,8 +443,8 @@ show_cron_status() {
             echo "    - Midnight: 00:00 daily"
             echo ""
             echo "  Maintenance:"
-            echo "    - Cleanup: 03:00 daily"
-            echo "    - Logs:    04:00 every Sunday"
+            echo "    - Video cleanup: 03:00 daily (2-day retention)"
+            echo "    - Log cleanup:   02:00 daily (30-day retention, 500MB limit)"
             echo ""
             echo "  Monitoring:"
             echo "    - Time sync:   Every hour"
