@@ -45,8 +45,8 @@ VIDEOS_DIR = PROJECT_DIR / "videos"
 RESULTS_DIR = PROJECT_DIR / "results"
 DB_DIR = PROJECT_DIR / "db"
 
-MIN_SPACE_GB = 100  # Minimum required space
-ESTIMATED_VIDEO_SIZE_PER_DAY_GB = 50  # Estimate: 10 cameras × 7 hours
+MIN_SPACE_GB = 150  # Minimum required space (based on actual 78GB/day + processing + buffer)
+ESTIMATED_VIDEO_SIZE_PER_DAY_GB = 80  # Actual measured: 10 cameras × 10 hours @ 0.222 MB/s
 
 # Recording schedule (restaurant operating hours)
 RECORDING_START_HOUR = 11  # 11 AM
