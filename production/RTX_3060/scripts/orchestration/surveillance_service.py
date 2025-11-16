@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
 ASE Restaurant Surveillance Service - Automated Daemon
-Version: 1.0.0
+Version: 2.0.0
 Created: 2025-11-16
+Modified: 2025-11-16 - v2.0.0: Multiple capture windows and midnight processing
 
 Purpose:
 - Fully automated surveillance system that runs continuously
-- Automatically captures video during business hours (11 AM - 9 PM)
-- Automatically processes video at night (11 PM - 6 AM)
+- Automatically captures video during business hours (11:30 AM - 2 PM, 5 PM - 10 PM)
+- Automatically processes video overnight (12:00 AM - 11:00 PM target completion)
 - Continuously monitors system health (GPU, disk, database)
 - Syncs data to cloud hourly
 - No manual intervention required after initialization
@@ -27,8 +28,8 @@ Usage:
 
 Architecture:
     Main Thread: Service controller and scheduler
-    Thread 1: Video capture (11 AM - 9 PM)
-    Thread 2: Video processing (11 PM - 6 AM)
+    Thread 1: Video capture (11:30 AM - 2 PM, 5 PM - 10 PM - dual windows)
+    Thread 2: Video processing (12:00 AM - 11:00 PM target completion)
     Thread 3: Disk space monitoring (every hour)
     Thread 4: GPU monitoring (every 5 minutes)
     Thread 5: Database sync (every hour)
@@ -56,11 +57,13 @@ PID_FILE = PROJECT_ROOT / "surveillance_service.pid"
 LOG_FILE = PROJECT_ROOT / "logs" / "surveillance_service.log"
 CONFIG_DIR = PROJECT_ROOT / "scripts" / "config"
 
-# Operating hours
-CAPTURE_START_HOUR = 11  # 11 AM
-CAPTURE_END_HOUR = 21    # 9 PM
-PROCESS_START_HOUR = 23  # 11 PM
-PROCESS_END_HOUR = 6     # 6 AM
+# Operating hours - Multiple capture windows per day
+CAPTURE_WINDOWS = [
+    {"start_hour": 11, "start_minute": 30, "end_hour": 14, "end_minute": 0},  # 11:30 AM - 2:00 PM (morning)
+    {"start_hour": 17, "start_minute": 0, "end_hour": 22, "end_minute": 0}    # 5:00 PM - 10:00 PM (evening)
+]
+PROCESS_START_HOUR = 0   # 12:00 AM (midnight)
+PROCESS_END_HOUR = 23    # 11:00 PM (target completion time - warning if exceeded)
 
 # Monitoring intervals (seconds)
 DISK_CHECK_INTERVAL = 3600      # 1 hour
@@ -72,7 +75,7 @@ HEALTH_CHECK_INTERVAL = 1800    # 30 minutes
 class SurveillanceService:
     """
     Automated surveillance service daemon
-    Version: 1.0.0
+    Version: 2.0.0
     """
 
     def __init__(self, foreground=False):
@@ -80,6 +83,7 @@ class SurveillanceService:
         self.running = False
         self.capture_process = None
         self.processing_process = None
+        self.current_capture_window = None  # Track which window is currently active
 
         # Monitoring threads
         self.threads = []
@@ -115,35 +119,71 @@ class SurveillanceService:
         sys.exit(0)
 
     def is_in_time_window(self, start_hour: int, end_hour: int) -> bool:
-        """Check if current time is within specified window"""
+        """Check if current time is within specified window (legacy method for processing window)"""
         now = datetime.now().time()
         current_hour = now.hour
 
         if start_hour < end_hour:
-            # Same day window (e.g., 11 AM - 9 PM)
+            # Same day window (e.g., 0 AM - 11 PM)
             return start_hour <= current_hour < end_hour
         else:
             # Overnight window (e.g., 11 PM - 6 AM)
             return current_hour >= start_hour or current_hour < end_hour
 
+    def is_in_capture_window(self) -> tuple:
+        """
+        Check if current time is within any capture window
+        Returns: (bool, dict or None) - (in_window, window_config)
+        """
+        now = datetime.now()
+        current_hour = now.hour
+        current_minute = now.minute
+
+        for window in CAPTURE_WINDOWS:
+            start_hour = window["start_hour"]
+            start_minute = window["start_minute"]
+            end_hour = window["end_hour"]
+            end_minute = window["end_minute"]
+
+            # Convert to minutes since midnight for easier comparison
+            current_total_minutes = current_hour * 60 + current_minute
+            start_total_minutes = start_hour * 60 + start_minute
+            end_total_minutes = end_hour * 60 + end_minute
+
+            if start_total_minutes <= current_total_minutes < end_total_minutes:
+                return (True, window)
+
+        return (False, None)
+
     def start_video_capture(self):
-        """Start video capture if in operating hours"""
-        if not self.is_in_time_window(CAPTURE_START_HOUR, CAPTURE_END_HOUR):
-            self.logger.info("Outside capture hours, skipping video capture")
+        """Start video capture if in any capture window"""
+        in_window, window = self.is_in_capture_window()
+
+        if not in_window:
+            self.logger.info("Outside capture windows, skipping video capture")
             return
 
         if self.capture_process and self.capture_process.poll() is None:
             self.logger.info("Video capture already running")
             return
 
-        self.logger.info("Starting video capture...")
+        # Determine which window (morning or evening)
+        window_name = "morning" if window["start_hour"] == 11 else "evening"
+        self.logger.info(f"Starting video capture ({window_name} window)...")
         capture_script = PROJECT_ROOT / "scripts" / "video_capture" / "capture_rtsp_streams.py"
 
-        # Calculate duration until end of capture window
+        # Calculate duration until end of current capture window
         now = datetime.now()
-        end_time = now.replace(hour=CAPTURE_END_HOUR, minute=0, second=0, microsecond=0)
+        end_time = now.replace(
+            hour=window["end_hour"],
+            minute=window["end_minute"],
+            second=0,
+            microsecond=0
+        )
+
         if end_time <= now:
-            # Already past end time today
+            # Already past end time for this window
+            self.logger.warning(f"Already past end time for {window_name} window")
             return
 
         duration = int((end_time - now).total_seconds())
@@ -154,12 +194,17 @@ class SurveillanceService:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE
             )
-            self.logger.info(f"Video capture started (PID: {self.capture_process.pid}, duration: {duration}s)")
+            self.current_capture_window = window  # Track active window
+            self.logger.info(f"Video capture started (PID: {self.capture_process.pid}, {window_name} window, duration: {duration}s)")
         except Exception as e:
             self.logger.error(f"Failed to start video capture: {e}")
 
     def start_video_processing(self):
-        """Start video processing if in processing hours"""
+        """
+        Start video processing if in processing hours
+        Processes previous day's videos captured during 11:30 AM - 2 PM and 5 PM - 10 PM
+        Target completion: 11 PM (warning logged if exceeded)
+        """
         if not self.is_in_time_window(PROCESS_START_HOUR, PROCESS_END_HOUR):
             self.logger.info("Outside processing hours, skipping video processing")
             return
@@ -168,7 +213,8 @@ class SurveillanceService:
             self.logger.info("Video processing already running")
             return
 
-        self.logger.info("Starting video processing...")
+        self.logger.info("Starting video processing (previous day's footage)...")
+        self.logger.info(f"Target completion: {PROCESS_END_HOUR:02d}:00 (warning if exceeded)")
         orchestrator_script = PROJECT_ROOT / "scripts" / "orchestration" / "process_videos_orchestrator.py"
 
         try:
@@ -270,7 +316,8 @@ class SurveillanceService:
                 self.logger.info(f"Health check: {status}")
 
                 # Restart capture if it should be running but isn't
-                if self.is_in_time_window(CAPTURE_START_HOUR, CAPTURE_END_HOUR):
+                in_window, window = self.is_in_capture_window()
+                if in_window:
                     if not status['capture_running']:
                         self.logger.warning("Capture stopped unexpectedly, restarting...")
                         self.start_video_capture()
@@ -287,34 +334,43 @@ class SurveillanceService:
             time.sleep(HEALTH_CHECK_INTERVAL)
 
     def scheduler_loop(self):
-        """Main scheduler loop"""
+        """Main scheduler loop - handles multiple capture windows per day"""
         self.logger.info("Starting scheduler loop...")
 
         while self.running:
             try:
                 now = datetime.now()
-                current_time = now.time()
                 current_hour = now.hour
+                current_minute = now.minute
 
-                # Check if we should start video capture
-                if current_hour == CAPTURE_START_HOUR and current_time.minute == 0:
-                    self.start_video_capture()
+                # Check each capture window
+                for window in CAPTURE_WINDOWS:
+                    start_hour = window["start_hour"]
+                    start_minute = window["start_minute"]
+                    end_hour = window["end_hour"]
+                    end_minute = window["end_minute"]
 
-                # Check if we should start video processing
-                if current_hour == PROCESS_START_HOUR and current_time.minute == 0:
+                    # Check if we should start this capture window
+                    if current_hour == start_hour and current_minute == start_minute:
+                        self.start_video_capture()
+
+                    # Check if this capture window ended
+                    if current_hour == end_hour and current_minute == end_minute:
+                        if self.capture_process and self.capture_process.poll() is None:
+                            window_name = "morning" if start_hour == 11 else "evening"
+                            self.logger.info(f"{window_name.capitalize()} capture window ended, stopping capture...")
+                            self.capture_process.terminate()
+                            self.current_capture_window = None
+
+                # Check if we should start video processing (midnight)
+                if current_hour == PROCESS_START_HOUR and current_minute == 0:
                     self.start_video_processing()
 
-                # Check if capture window ended
-                if current_hour == CAPTURE_END_HOUR and current_time.minute == 0:
-                    if self.capture_process and self.capture_process.poll() is None:
-                        self.logger.info("Capture window ended, stopping capture...")
-                        self.capture_process.terminate()
-
-                # Check if processing window ended
-                if current_hour == PROCESS_END_HOUR and current_time.minute == 0:
+                # Check if processing should have completed (11 PM warning)
+                if current_hour == PROCESS_END_HOUR and current_minute == 0:
                     if self.processing_process and self.processing_process.poll() is None:
-                        self.logger.info("Processing window ended, stopping processing...")
-                        self.processing_process.terminate()
+                        self.logger.warning("⚠️  WARNING: Video processing still running after 11 PM target completion time!")
+                        self.logger.warning("⚠️  Processing may not finish before next day's capture window starts.")
 
             except Exception as e:
                 self.logger.error(f"Scheduler error: {e}")
@@ -344,10 +400,13 @@ class SurveillanceService:
 
         self.running = True
         self.logger.info("=" * 70)
-        self.logger.info("ASE Surveillance Service Starting")
+        self.logger.info("ASE Surveillance Service Starting v2.0.0")
         self.logger.info("=" * 70)
-        self.logger.info(f"Capture hours: {CAPTURE_START_HOUR}:00 - {CAPTURE_END_HOUR}:00")
-        self.logger.info(f"Processing hours: {PROCESS_START_HOUR}:00 - {PROCESS_END_HOUR}:00")
+        self.logger.info("Capture windows (dual schedule):")
+        for i, window in enumerate(CAPTURE_WINDOWS, 1):
+            window_name = "Morning" if window["start_hour"] == 11 else "Evening"
+            self.logger.info(f"  {window_name}: {window['start_hour']:02d}:{window['start_minute']:02d} - {window['end_hour']:02d}:{window['end_minute']:02d}")
+        self.logger.info(f"Processing hours: {PROCESS_START_HOUR:02d}:00 - {PROCESS_END_HOUR:02d}:00 (target completion)")
         self.logger.info("=" * 70)
 
         # Start monitoring threads
@@ -363,7 +422,8 @@ class SurveillanceService:
             self.logger.info(f"Started thread: {thread.name}")
 
         # Start initial processes if in time windows
-        if self.is_in_time_window(CAPTURE_START_HOUR, CAPTURE_END_HOUR):
+        in_capture_window, _ = self.is_in_capture_window()
+        if in_capture_window:
             self.start_video_capture()
 
         if self.is_in_time_window(PROCESS_START_HOUR, PROCESS_END_HOUR):
@@ -423,10 +483,20 @@ class SurveillanceService:
             now = datetime.now()
             print(f"Time: {now.strftime('%Y-%m-%d %H:%M:%S')}")
 
-            in_capture_window = self.is_in_time_window(CAPTURE_START_HOUR, CAPTURE_END_HOUR)
-            in_process_window = self.is_in_time_window(PROCESS_START_HOUR, PROCESS_END_HOUR)
+            # Check which capture window we're in
+            in_capture_window, current_window = self.is_in_capture_window()
+            if in_capture_window:
+                window_name = "Morning" if current_window["start_hour"] == 11 else "Evening"
+                print(f"Capture window: 🟢 ACTIVE ({window_name})")
+            else:
+                print(f"Capture window: 🔴 INACTIVE")
+                # Show next window
+                print("Next capture windows:")
+                for window in CAPTURE_WINDOWS:
+                    window_name = "Morning" if window["start_hour"] == 11 else "Evening"
+                    print(f"  {window_name}: {window['start_hour']:02d}:{window['start_minute']:02d} - {window['end_hour']:02d}:{window['end_minute']:02d}")
 
-            print(f"Capture window: {'🟢 ACTIVE' if in_capture_window else '🔴 INACTIVE'}")
+            in_process_window = self.is_in_time_window(PROCESS_START_HOUR, PROCESS_END_HOUR)
             print(f"Processing window: {'🟢 ACTIVE' if in_process_window else '🔴 INACTIVE'}")
 
             return True
