@@ -4,13 +4,11 @@ Documentation=https://github.com/JeremyDong22/ASEOfSmartICE
 After=network.target
 
 [Service]
-Type=forking
+Type=simple
 User=smartahc
 Group=smartahc
 WorkingDirectory=/home/smartahc/smartice/ASEOfSmartICE/production/RTX_3060
-ExecStart=/home/smartahc/smartice/ASEOfSmartICE/production/RTX_3060/start.sh --daemon
-ExecStop=/home/smartahc/smartice/ASEOfSmartICE/production/RTX_3060/start.sh --stop
-PIDFile=/home/smartahc/smartice/ASEOfSmartICE/production/RTX_3060/surveillance_service.pid
+ExecStart=/usr/bin/python3 /home/smartahc/smartice/ASEOfSmartICE/production/RTX_3060/scripts/orchestration/surveillance_service.py start
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal
