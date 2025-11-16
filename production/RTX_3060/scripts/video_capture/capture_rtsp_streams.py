@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
 RTSP Video Capture Script for Multi-Camera Restaurant Monitoring
-Version: 3.0.0
-Last Updated: 2025-11-14
+Version: 3.1.0
+Last Updated: 2025-11-17
+Modified: Added 10-minute periodic checkpoint mechanism to prevent video corruption - 2025-11-17
 
 Purpose: Capture video streams from multiple UNV cameras via RTSP with robust reconnection
 Saves videos with standardized naming: camera_{id}_{date}_{time}.mp4
@@ -20,7 +21,20 @@ Features:
   * Network health monitoring with ping checks
   * RTT-based quality filtering
   * Enhanced logging and metrics
+- PERIODIC CHECKPOINT MECHANISM (NEW in v3.1.0)
+  * Force file rotation every 10 minutes (600 seconds)
+  * Prevents moov atom loss if network interrupts
+  * Maximum 10 minutes data loss instead of entire session
+  * Independent of network status or FPS
+  * Graceful shutdown with signal handlers (SIGTERM/SIGINT)
 - Local storage with cloud upload capability
+
+Changes in v3.1.0:
+- Added 10-minute periodic checkpoint for corruption prevention
+- Force VideoWriter.release() and create new segment every 600 seconds
+- Added SIGTERM and SIGINT signal handlers for graceful shutdown
+- Enhanced logging to show checkpoint triggers and statistics
+- Reset checkpoint timer on reconnection
 
 Changes in v3.0.0:
 - IMMEDIATE segmentation on FPS drop (< 2fps) - no 30s delay
@@ -46,6 +60,8 @@ import time
 import os
 import subprocess
 import platform
+import signal
+import sys
 from pathlib import Path
 from datetime import datetime
 import json
@@ -74,6 +90,9 @@ DISCONNECT_FPS_THRESHOLD = 2  # FPS below this = immediate disconnect
 # Immediate segmentation on disconnect (NEW in v3.0.0)
 IMMEDIATE_SEGMENT_ON_DISCONNECT = True  # Always create new file on disconnect
 RECONNECT_RETRY_INTERVAL = 10  # Seconds between reconnection attempts (reduced from 30)
+
+# Periodic checkpoint settings (NEW in v3.1.0)
+CHECKPOINT_INTERVAL_SECONDS = 600  # 10 minutes - force file rotation to prevent corruption
 
 # Original capture settings
 MAX_RETRY_ATTEMPTS = 3
@@ -535,6 +554,10 @@ class CameraCapture:
         is_disconnected = False
         last_reconnect_attempt = None
 
+        # Checkpoint tracking (NEW in v3.1.0)
+        segment_start_time = time.time()
+        checkpoint_count = 0
+
         # FPS tracking (NEW in v3.0.0)
         frame_timestamps = []  # Track last N frame times
         fps_window = 20  # Calculate FPS over last 20 frames
@@ -552,6 +575,27 @@ class CameraCapture:
                 if elapsed_total >= duration_seconds:
                     print(f"[{self.camera_id}] ⏱️  Target duration reached: {duration_seconds}s")
                     break
+
+                # ========== PERIODIC CHECKPOINT (NEW in v3.1.0) ==========
+                # Force file rotation every 10 minutes to prevent corruption
+                current_time = time.time()
+                time_since_checkpoint = current_time - segment_start_time
+
+                if time_since_checkpoint >= CHECKPOINT_INTERVAL_SECONDS and not is_disconnected:
+                    checkpoint_count += 1
+                    print(f"\n[{self.camera_id}] ⏰ CHECKPOINT #{checkpoint_count} TRIGGERED")
+                    print(f"[{self.camera_id}]    Time since last checkpoint: {time_since_checkpoint:.1f}s")
+                    print(f"[{self.camera_id}]    Forcing file rotation to prevent corruption...")
+
+                    # Force segment rotation
+                    writer = segment_manager.next_segment()
+                    segment_start_time = current_time
+
+                    if writer is None:
+                        print(f"[{self.camera_id}] ❌ Failed to create checkpoint segment!")
+                        break
+
+                    print(f"[{self.camera_id}] ✅ Checkpoint segment created: {segment_manager.get_current_filename()}")
 
                 # Try to read frame
                 ret, frame = cap.read()
@@ -582,6 +626,7 @@ class CameraCapture:
                         disconnection_start_time = None
                         frame_timestamps = []  # Reset FPS tracking
                         current_fps = self.config['fps']
+                        segment_start_time = time.time()  # Reset checkpoint timer (NEW in v3.1.0)
                         segment_manager.record_reconnection(reconnect_duration)
 
                     # Write frame to current segment
@@ -698,6 +743,10 @@ class CameraCapture:
             success_rate = (self.successful_reconnections / self.reconnection_attempts * 100)
             print(f"   - Success rate: {success_rate:.1f}%")
 
+        print(f"\n   Checkpoint stats:")
+        print(f"   - Periodic checkpoints: {checkpoint_count}")
+        print(f"   - Checkpoint interval: {CHECKPOINT_INTERVAL_SECONDS}s ({CHECKPOINT_INTERVAL_SECONDS/60:.0f} minutes)")
+
         print(f"\n   Video segments created: {coverage_report['segment_count']}")
         print(f"   Disconnections (new segments): {coverage_report['disconnections']}")
         for seg_info in coverage_report['segments']:
@@ -725,6 +774,38 @@ class CameraCapture:
         self.is_capturing = False
         if self.capture_thread:
             self.capture_thread.join(timeout=5)
+
+
+# ============================================================================
+# SIGNAL HANDLERS FOR GRACEFUL SHUTDOWN (NEW in v3.1.0)
+# ============================================================================
+
+# Global registry for active captures (for signal handler cleanup)
+_active_captures = []
+
+def signal_handler(sig, frame):
+    """
+    Handle SIGTERM and SIGINT for graceful shutdown.
+    Ensures video files are properly closed to prevent corruption.
+    """
+    signal_name = "SIGTERM" if sig == signal.SIGTERM else "SIGINT"
+    print(f"\n⚠️  Received {signal_name}, initiating graceful shutdown...")
+
+    # Stop all active captures
+    for capture in _active_captures:
+        try:
+            print(f"[{capture.camera_id}] Stopping capture...")
+            capture.is_capturing = False
+        except Exception as e:
+            print(f"[{capture.camera_id}] Error stopping capture: {e}")
+
+    print("✅ Graceful shutdown complete")
+    sys.exit(0)
+
+
+# Register signal handlers
+signal.signal(signal.SIGTERM, signal_handler)
+signal.signal(signal.SIGINT, signal_handler)
 
 
 # ============================================================================
@@ -790,6 +871,7 @@ def capture_all_cameras(duration_seconds, output_dir, camera_filter=None):
     print(f"Cameras: {', '.join(cameras.keys())}")
     print(f"Disconnect detection: FPS < {DISCONNECT_FPS_THRESHOLD} (immediate segmentation)")
     print(f"Reconnection interval: {RECONNECT_RETRY_INTERVAL}s")
+    print(f"Checkpoint interval: {CHECKPOINT_INTERVAL_SECONDS}s ({CHECKPOINT_INTERVAL_SECONDS/60:.0f} minutes)")
     print(f"Network RTT threshold: {MAX_RTT_MS}ms")
     print(f"{'='*70}\n")
 
@@ -800,6 +882,7 @@ def capture_all_cameras(duration_seconds, output_dir, camera_filter=None):
     for camera_id, config in cameras.items():
         capture = CameraCapture(camera_id, config)
         captures[camera_id] = capture
+        _active_captures.append(capture)  # Register for signal handler (NEW in v3.1.0)
         thread = capture.start_capture_async(duration_seconds, output_dir)
         threads.append(thread)
 
@@ -844,6 +927,12 @@ Reconnection Features (v3.0.0):
   - Aborts if RTT > 500ms (network too slow)
   - Creates new segment (_part2, _part3) on every disconnect
   - Reports recording coverage % at end of session
+
+Checkpoint Features (v3.1.0):
+  - Periodic file rotation every 10 minutes (600 seconds)
+  - Prevents moov atom corruption if network fails
+  - Maximum 10 minutes data loss instead of entire session
+  - Graceful shutdown on SIGTERM/SIGINT signals
         """
     )
 

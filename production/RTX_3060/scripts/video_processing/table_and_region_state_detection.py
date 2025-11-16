@@ -1,11 +1,24 @@
 #!/usr/bin/env python3
 """
+# Modified: 2025-11-17 - Implemented first-frame duplication for proper debounce buffer filling
+# Feature: Properly initializes table and division states by processing first frame multiple times
+# to fill debounce buffer and ensure initial states are logged to database
+#
 Table and Region State Detection System
-Version: 3.0.0
-Last Updated: 2025-11-14
+Version: 3.1.0
+Last Updated: 2025-11-17
 
 Purpose: Unified system monitoring both table states and regional staff coverage
 Combines table-level monitoring (IDLE/BUSY/CLEANING) with division-level monitoring (staffed/unstaffed)
+
+Changes in v3.1.0:
+- FIXED: First-frame duplication to properly fill debounce buffer
+- Process first frame N times (N = target_fps × STATE_DEBOUNCE_SECONDS)
+- Removed direct state assignment (now uses update_state() with debounce)
+- Removed redundant time.sleep() - replaced with frame duplication loop
+- FPS-flexible implementation (works with 5, 10, 20 FPS, etc.)
+- Initial states now properly logged to database (fixes commercial metrics)
+- Each iteration simulates time progression for proper debounce
 
 Changes in v3.0.0:
 - Added first-second preprocessing to establish initial states
@@ -1506,14 +1519,14 @@ def process_video(video_path, person_detector, staff_classifier, config, output_
     screenshot_dir = db_dir / "screenshots"
     screenshot_dir.mkdir(parents=True, exist_ok=True)
 
-    # ===== FIRST-SECOND PREPROCESSING =====
-    # Establish initial states before video playback starts
+    # ===== FIRST-FRAME DUPLICATION FOR DEBOUNCE BUFFER =====
+    # Process first frame multiple times to fill debounce buffer
     print("\n" + "="*70)
-    print("First-Second Preprocessing")
+    print("First-Frame Preprocessing (v3.1.0)")
     print("="*70)
-    print("📌 Pausing at first frame to establish initial states...")
+    print("📌 Processing first frame multiple times to fill debounce buffer...")
 
-    # Read first frame
+    # Read first frame ONCE
     ret, first_frame = cap.read()
     if not ret:
         print("❌ Could not read first frame")
@@ -1525,44 +1538,56 @@ def process_video(video_path, person_detector, staff_classifier, config, output_
     # Reset to beginning for normal processing
     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
 
-    # Run detection pipeline on first frame
-    print("   Stage 1: Detecting persons in first frame...")
-    first_person_detections = detect_persons(person_detector, first_frame)
-    print(f"   ✓ Found {len(first_person_detections)} persons")
+    # Calculate frames needed based on ACTUAL FPS (flexible!)
+    frames_for_debounce = int(target_fps * STATE_DEBOUNCE_SECONDS)
+    time_step = 1.0 / target_fps
 
-    print("   Stage 2: Classifying persons...")
-    first_classified_detections = classify_persons(staff_classifier, first_frame, first_person_detections)
+    print(f"   Target FPS: {target_fps}")
+    print(f"   Debounce period: {STATE_DEBOUNCE_SECONDS}s")
+    print(f"   Frames to process: {frames_for_debounce}")
+    print(f"   Time step: {time_step:.3f}s per frame")
 
-    # Count classifications
-    waiters = sum(1 for d in first_classified_detections if d['class'] == 'waiter')
-    customers = sum(1 for d in first_classified_detections if d['class'] == 'customer')
-    unknown = sum(1 for d in first_classified_detections if d['class'] == 'unknown')
-    print(f"   ✓ Waiters: {waiters}, Customers: {customers}, Unknown: {unknown}")
-
-    # Assign to ROIs and update states
-    print("   Assigning detections to ROIs...")
-    walking_waiters, service_waiters = assign_detections_to_rois(
-        division_polygon, tables, sitting_areas, service_areas, first_classified_detections
-    )
-
-    # Initialize all table states based on first frame
+    # Process first frame multiple times
     initial_time = time.time()
+
+    for i in range(frames_for_debounce):
+        # Simulated time for this iteration
+        simulated_time = initial_time + (i * time_step)
+
+        # Run full detection pipeline on SAME frame
+        person_detections = detect_persons(person_detector, first_frame)
+        classified_detections = classify_persons(staff_classifier, first_frame, person_detections)
+
+        # Assign to ROIs
+        walking_waiters, service_waiters = assign_detections_to_rois(
+            division_polygon, tables, sitting_areas, service_areas, classified_detections
+        )
+
+        # Update states through debounce (NOT direct assignment!)
+        for table in tables:
+            table.update_state(simulated_time)
+
+        division_tracker.update_state(walking_waiters, service_waiters, simulated_time)
+
+        # Log first iteration only
+        if i == 0:
+            waiters = sum(1 for d in classified_detections if d['class'] == 'waiter')
+            customers = sum(1 for d in classified_detections if d['class'] == 'customer')
+            unknown = sum(1 for d in classified_detections if d['class'] == 'unknown')
+            print(f"\n   Initial detections (frame 0):")
+            print(f"   ✓ Persons: {len(person_detections)} (Waiters: {waiters}, Customers: {customers}, Unknown: {unknown})")
+            print(f"   ✓ Walking area waiters: {walking_waiters}")
+            print(f"   ✓ Service area waiters: {service_waiters}")
+
+    # After loop, states are established through proper debounce
+    print(f"\n   ✅ Processed first frame {frames_for_debounce} times")
+    print(f"   ✅ Debounce buffer filled ({STATE_DEBOUNCE_SECONDS}s @ {target_fps} FPS)")
+    print("\n   Final initial states:")
     for table in tables:
-        initial_state = table.determine_state()
-        table.state = initial_state
-        print(f"   {table.id}: {initial_state.value} (C:{table.customers_present} W:{table.waiters_present})")
-
-    # Initialize division state based on first frame
-    initial_division_state = division_tracker.determine_state(walking_waiters, service_waiters)
-    division_tracker.current_state = initial_division_state
-    print(f"   DIVISION: {initial_division_state.upper()} (Walking:{walking_waiters} Service:{service_waiters})")
-
-    # Sleep for 1 second to fill debounce buffer
-    print("\n   ⏳ Waiting 1 second to establish state buffer...")
-    time.sleep(STATE_DEBOUNCE_SECONDS)
-    print("   ✅ Initial states established!")
+        print(f"   {table.id}: {table.state.value} (C:{table.customers_present} W:{table.waiters_present})")
+    print(f"   DIVISION: {division_tracker.current_state.upper()} (Walking:{walking_waiters} Service:{service_waiters})")
     print("="*70 + "\n")
-    # ======================================
+    # ======================================================
 
     # Process frames
     frame_idx = 0
