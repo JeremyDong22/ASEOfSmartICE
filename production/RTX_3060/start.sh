@@ -116,6 +116,62 @@ get_status() {
     fi
 }
 
+# Check if systemd service is installed
+is_systemd_installed() {
+    systemctl list-unit-files | grep -q "ase_surveillance.service"
+}
+
+# Auto-install systemd if not present
+ensure_systemd_installed() {
+    if is_systemd_installed; then
+        log_info "✅ Systemd service already installed"
+        return 0
+    fi
+
+    log_warn "⚠️  Systemd service not installed"
+    log_info ""
+    log_info "For production reliability, this service should be managed by systemd."
+    log_info "This provides:"
+    log_info "  • Auto-restart on crash"
+    log_info "  • Auto-start on system boot"
+    log_info "  • OS-level process management"
+    log_info "  • Integrated logging (journalctl)"
+    log_info ""
+
+    if [ "${DAEMON_MODE:-false}" = "true" ]; then
+        # In daemon mode, install automatically without asking
+        log_info "Installing systemd service automatically..."
+    else
+        # In interactive mode, ask for confirmation
+        read -p "Install systemd service now? (y/n): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            log_warn "Systemd not installed. Using shell-based protection instead."
+            return 1
+        fi
+    fi
+
+    # Install systemd
+    local systemd_installer="$PROJECT_ROOT/scripts/deployment/install_service.sh"
+
+    if [ ! -f "$systemd_installer" ]; then
+        log_error "❌ Systemd installer not found: $systemd_installer"
+        return 1
+    fi
+
+    log_info ""
+    log_info "Installing systemd service (requires sudo)..."
+    sudo bash "$systemd_installer"
+
+    if is_systemd_installed; then
+        log_info "✅ Systemd service installed successfully!"
+        return 0
+    else
+        log_error "❌ Systemd installation failed"
+        return 1
+    fi
+}
+
 # Start service with crash protection
 start_service() {
     print_banner
@@ -161,17 +217,70 @@ start_service() {
         fi
     fi
 
-    # Check if service is already running (wizard might have started it)
-    if is_running; then
-        log_info "✅ Service already started by wizard"
-        get_status
-        return 0
+    # Ensure systemd is installed (auto-install if needed)
+    log_info ""
+    log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    log_info "🛡️  CRASH PROTECTION SETUP"
+    log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    log_info ""
+
+    local use_systemd=true
+    if ! ensure_systemd_installed; then
+        use_systemd=false
     fi
 
-    # Start service with crash protection
+    # Start service
+    log_info ""
     log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    log_info "🛡️  STARTING SERVICE WITH AUTO-RESTART PROTECTION"
+    log_info "🚀 STARTING SERVICE"
     log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    log_info ""
+
+    if [ "$use_systemd" = true ]; then
+        # Start via systemd (best protection)
+        log_info "Using systemd for maximum reliability..."
+        log_info ""
+
+        sudo systemctl start ase_surveillance
+
+        # Wait for service to start
+        sleep 2
+
+        # Check status
+        if sudo systemctl is-active --quiet ase_surveillance; then
+            log_info ""
+            log_info "✅ Service started successfully via systemd!"
+            log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            log_info ""
+            log_info "Management commands:"
+            log_info "  sudo systemctl status ase_surveillance    # Check status"
+            log_info "  sudo systemctl stop ase_surveillance      # Stop service"
+            log_info "  sudo systemctl restart ase_surveillance   # Restart service"
+            log_info ""
+            log_info "Enable auto-start on boot:"
+            log_info "  sudo systemctl enable ase_surveillance"
+            log_info ""
+            log_info "View logs:"
+            log_info "  sudo journalctl -u ase_surveillance -f"
+            log_info "  tail -f $SERVICE_LOG"
+            log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            log_info ""
+        else
+            log_error "❌ Failed to start via systemd"
+            log_info "Falling back to shell-based protection..."
+            use_systemd=false
+        fi
+    fi
+
+    # Fallback: Shell-based protection (if systemd not available)
+    if [ "$use_systemd" = false ]; then
+        start_with_shell_protection
+    fi
+}
+
+# Shell-based crash protection (fallback)
+start_with_shell_protection() {
+    log_warn "⚠️  Using shell-based protection (systemd not available)"
     log_info ""
 
     if [ "${FOREGROUND:-false}" = "true" ]; then
@@ -399,29 +508,26 @@ case "$COMMAND" in
     logs|--logs)
         view_logs
         ;;
-    --install-systemd)
-        install_systemd
-        ;;
     *)
         echo "ASE Restaurant Surveillance System v3.0.0"
         echo ""
         echo "Usage: $0 {COMMAND} [OPTIONS]"
         echo ""
         echo "Commands:"
-        echo "  start, --start           Start service (interactive mode)"
+        echo "  start, --start           Start service (auto-installs systemd if needed)"
         echo "  --daemon, -d             Start in daemon mode (skip wizard)"
         echo "  --foreground, -f         Run in foreground (debug mode)"
         echo "  stop, --stop             Stop service"
         echo "  restart, --restart       Restart service"
         echo "  status, --status         Check service status"
         echo "  logs, --logs             View recent logs"
-        echo "  --install-systemd        Install systemd service"
         echo ""
         echo "Examples:"
-        echo "  $0                       # Interactive start (wizard + protection)"
-        echo "  $0 --daemon              # Daemon start (no wizard, auto-restart)"
+        echo "  $0                       # Interactive start (auto-protection)"
+        echo "  $0 --daemon              # Daemon start (no wizard)"
         echo "  $0 --status              # Check if running"
-        echo "  $0 --install-systemd     # Install OS-level service"
+        echo ""
+        echo "Note: Systemd protection is installed automatically on first run"
         echo ""
         exit 1
         ;;
