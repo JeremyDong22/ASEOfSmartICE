@@ -46,109 +46,27 @@ linux_rtx_video_streaming/
 
 ---
 
-## System Comparison
+## Available Systems
 
-### Previous System (5-Minute Captures)
-
+### 1. Legacy 5-Minute Captures
 **Location:** `previous_5min_captures/`
+- Quick testing, ad-hoc captures (archived)
+- See folder README for details
 
-| Feature | Value |
-|---------|-------|
-| **Duration** | 5 minutes per capture |
-| **File Size** | ~400-600 MB per video |
-| **Upload** | Immediate (often timed out) |
-| **Use Case** | Quick testing, ad-hoc captures |
-| **Status** | Legacy / archived |
-
-**Key Script:** `capture_video_streams.py`
-
-```bash
-cd previous_5min_captures
-python3 capture_video_streams.py
-```
-
----
-
-### New System (1-Hour Continuous) ⭐ RECOMMENDED
-
+### 2. Production 1-Hour Continuous ⭐ RECOMMENDED
 **Location:** `scheduled_1hour_capture_7pm_8pm/`
+- Production peak-hour data collection (7-8 PM daily)
+- See `scheduled_1hour_capture_7pm_8pm/README.md` for complete documentation
 
-| Feature | Value |
-|---------|-------|
-| **Duration** | 1 hour continuous (7-8 PM) |
-| **File Size** | ~3-5 GB per camera |
-| **Upload** | Background with 5-8 hour timeout |
-| **Use Case** | Production peak-hour data collection |
-| **Status** | Active / production-ready |
+### 3. Performance Testing (20x5min)
+**Location:** `scheduled_20x5min_capture/`
+- Continuous 100-minute capture with 5-minute segmentation
+- See folder README for details
 
-**Key Features:**
-- ✅ Captures full hour of restaurant activity
-- ✅ Large file handling (~6-10 GB total)
-- ✅ Non-blocking background upload
-- ✅ Automatic daily scheduling via cron
-- ✅ Local backup always saved first
-- ✅ Extended upload timeout (configurable 5-8 hours)
-
-**Quick Start:**
+**Quick Start (Production):**
 ```bash
 cd scheduled_1hour_capture_7pm_8pm
-
-# Setup automatic daily capture at 7 PM
-./setup_cron_7pm.sh
-
-# Or manual test run
-./run_scheduled_1hour_capture.sh
-```
-
-**See:** `scheduled_1hour_capture_7pm_8pm/README.md` for complete documentation
-
----
-
-## Key Differences from Screenshot Capture
-
-| Feature | Screenshot Capture | Video Streaming (5-min) | Video Streaming (1-hour) |
-|---------|-------------------|------------------------|-------------------------|
-| **Location** | `train-model/linux_rtx_screenshot_capture/` | `previous_5min_captures/` | `scheduled_1hour_capture_7pm_8pm/` |
-| **Purpose** | Training data | Quick testing | Production data |
-| **Cameras** | All 8 cameras | camera_22 + camera_35 | camera_22 + camera_35 |
-| **Output** | JPG images | MP4 videos (5 min) | MP4 videos (1 hour) |
-| **Schedule** | Every 5 min, 11 AM-10 PM | On-demand | Daily 7-8 PM |
-| **File Size** | ~100-800 KB | ~400-600 MB | ~3-5 GB |
-| **Upload** | Immediate | Immediate | Background (5-8 hr timeout) |
-
----
-
-## Target Cameras
-
-### camera_22 (1920x1080)
-- **RTSP URL**: `rtsp://admin:123456@202.168.40.22:554/Streaming/Channels/102`
-- **Resolution**: 1920x1080
-- **Password**: `123456`
-- **FPS**: 20
-
-### camera_35 (1920x1080)
-- **RTSP URL**: `rtsp://admin:123456@202.168.40.35:554/Streaming/Channels/102`
-- **Resolution**: 1920x1080
-- **Password**: `123456`
-- **FPS**: 20
-
----
-
-## Recommended Usage
-
-### For Production (Peak Hours Monitoring)
-Use the **1-hour scheduled system**:
-```bash
-cd scheduled_1hour_capture_7pm_8pm
-./setup_cron_7pm.sh  # One-time setup
-# System runs automatically every day at 7 PM
-```
-
-### For Quick Testing
-Use the **5-minute system**:
-```bash
-cd previous_5min_captures
-python3 capture_video_streams.py
+./setup_cron_7pm.sh  # Automatic daily capture at 7 PM
 ```
 
 ---
