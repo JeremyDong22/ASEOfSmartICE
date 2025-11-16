@@ -2,6 +2,17 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+**Last Updated:** 2025-11-16
+
+## Documentation Structure
+
+- **CLAUDE.md** (this file) - System overview, deployment guide, and configuration reference
+- **scripts/STRUCTURE.md** - Detailed scripts organization and navigation guide
+- **db/CLAUDE.md** - Cloud database schema, Supabase architecture, and sync details
+- **scripts/deployment/DEPLOYMENT_GUIDE.md** - Step-by-step deployment procedures
+
+---
+
 ## Project Overview
 
 Production deployment folder for RTX 3060 machine at 野百灵火锅店 (Ye Bai Ling Hotpot Restaurant) in 1958 Commercial District, Mianyang. This is the **live production environment** running on remote Linux hardware in the restaurant location.
@@ -10,7 +21,45 @@ Production deployment folder for RTX 3060 machine at 野百灵火锅店 (Ye Bai 
 
 ## Quick Start - New Deployment
 
-**Main Entry Point (Recommended):**
+### **Option 1: Automated Startup (Recommended for Production)**
+
+```bash
+cd /path/to/production/RTX_3060
+
+# Use robust shell wrapper with auto-restart
+./start.sh                  # Start service (background with auto-restart)
+./start.sh --foreground     # Run in foreground (debug mode)
+./start.sh --status         # Check service status
+./start.sh --stop           # Stop service
+./start.sh --logs           # View logs
+```
+
+**Features:**
+- Auto-restart on crash
+- Pre-flight checks (database, models, disk space)
+- Graceful shutdown handling
+- Comprehensive logging
+
+### **Option 2: Systemd Service (Permanent Deployment)**
+
+```bash
+cd scripts/deployment
+sudo ./install_service.sh
+
+# Service commands
+sudo systemctl start ase_surveillance
+sudo systemctl stop ase_surveillance
+sudo systemctl status ase_surveillance
+sudo systemctl enable ase_surveillance  # Auto-start on boot
+```
+
+**Features:**
+- OS-level daemon protection
+- Auto-start on boot
+- Restart on failure
+- Integrated with system journal
+
+### **Option 3: Python Direct (Development/Testing)**
 
 ```bash
 cd /path/to/production/RTX_3060
@@ -20,19 +69,27 @@ python3 start.py
 This is the main application entry point that:
 - Checks if system is initialized
 - Guides you through setup if needed
-- Provides interactive menu for all operations
+- Starts automated surveillance service
 
-**Manual Deployment:**
+---
+
+## Initial Deployment Workflow
 
 ```bash
-# Step 1: Migrate database to new schema
-python3 scripts/deployment/migrate_database.py --backup
-
-# Step 2: Initialize restaurant location and cameras
+# Step 1: Initialize restaurant location and cameras
 python3 scripts/deployment/initialize_restaurant.py
+# - Enter city, restaurant name, commercial area
+# - Add cameras with IP, username, password for each
+# - System creates configuration files and database
 
-# Step 3: Run main application
-python3 start.py
+# Step 2: (Optional) Manage cameras
+python3 scripts/deployment/manage_cameras.py
+# - Add/remove/edit cameras anytime
+# - Test RTSP connections
+# - Update configurations
+
+# Step 3: Start service
+./start.sh
 ```
 
 ## Business Context
@@ -552,12 +609,113 @@ Sitting: (128, 128, 128)    # Gray
 7. **GPU memory leak risk** - Monitor long-running processes
 8. **RTSP connection stability** - Handle reconnection gracefully
 
+## Deployment Tools
+
+### Camera Management Tool
+
+**Script:** `scripts/deployment/manage_cameras.py`
+
+Interactive tool for managing camera configurations after initial deployment.
+
+**Features:**
+- List all cameras with details
+- Add new cameras (prompts for IP, credentials, port, stream path)
+- Edit existing cameras (update any configuration)
+- Remove cameras (soft delete in database)
+- Test RTSP connections (OpenCV validation)
+
+**Usage:**
+```bash
+# Interactive menu
+python3 scripts/deployment/manage_cameras.py
+
+# Command line
+python3 scripts/deployment/manage_cameras.py --list
+python3 scripts/deployment/manage_cameras.py --add
+```
+
+**What it updates:**
+- `scripts/config/cameras_config.json` - Main camera configuration
+- Local SQLite database - Camera records
+- Validates IP addresses and tests connections
+
+### Configuration Files
+
+**Location:** `scripts/config/`
+
+**Primary Configuration Files:**
+1. **`cameras_config.json`** - Main camera configuration
+   - Format required by `capture_rtsp_streams.py`
+   - Contains: IP, port, username, password, stream_path, resolution, FPS
+   - Updated by: `initialize_restaurant.py` and `manage_cameras.py`
+
+2. **`table_region_config.json`** - ROI configuration for detection
+   - Division boundaries, table polygons, sitting areas, service areas
+   - Created by: Interactive ROI setup mode
+   - Used by: Video processing scripts
+
+3. **`{location_id}_cameras.json`** - Location-specific camera backup
+   - Derivative of main cameras_config.json
+   - Contains database format with additional metadata
+   - Auto-generated during initialization
+
+4. **`{location_id}_location.json`** - Location metadata
+   - City, restaurant name, commercial area, address, region
+   - Created during initial deployment
+
+---
+
+## Recent Improvements (2025-11-16)
+
+### 1. Camera Credential Collection
+**File:** `scripts/deployment/initialize_restaurant.py` v1.1.0
+
+**Problem:** Initial deployment script did not ask for camera usernames and passwords.
+
+**Solution:** Added prompts for each camera:
+- Username (default: admin)
+- Password (default: 123456)
+- Port (default: 554)
+- Stream path (default: /media/video1)
+
+**Impact:** Proper RTSP authentication configuration during initial setup.
+
+### 2. Camera Management Tool
+**File:** `scripts/deployment/manage_cameras.py` (new)
+
+**Problem:** No way to add/remove/edit cameras after initial deployment.
+
+**Solution:** Created interactive management tool with full CRUD operations for cameras.
+
+**Impact:** Flexible camera configuration throughout system lifecycle.
+
+### 3. Robust Startup System
+**Files:** `start.sh` (new), `scripts/deployment/ase_surveillance.service` (existing)
+
+**Problem:** Need daemon-level protection with auto-restart and crash recovery.
+
+**Solution:** Two-layer protection system:
+- **Layer 1:** Shell script wrapper (`start.sh`) with infinite loop auto-restart
+- **Layer 2:** Systemd service with `Restart=on-failure`
+
+**Features:**
+- Auto-restart on crash (10-second delay)
+- Pre-flight checks (database, models, disk space, network)
+- Graceful shutdown (SIGTERM → 30s wait → SIGKILL)
+- PID file management (prevents duplicate instances)
+- Comprehensive logging to `logs/startup.log`
+- Foreground/background modes
+
+**Impact:** Production-grade reliability with automatic crash recovery and system-level daemon protection.
+
+---
+
 ## Next Steps for Production
 
-1. **Batch Processing Scripts** - Process 10 cameras sequentially/parallel
-2. **RTSP Integration** - Live camera feeds vs recorded video
-3. **Cloud Upload Pipeline** - Results to Supabase after processing
-4. **Cron Scheduling** - Automated daily processing (11 PM - 6 AM)
-5. **Error Handling** - Graceful failures, retry logic, alerts
-6. **Monitoring Dashboard** - Real-time status, GPU usage, disk space
-7. **Database Cleanup** - Auto-rotate old sessions, compress screenshots
+1. ✅ **Camera Management** - Tool created for add/remove/edit cameras
+2. ✅ **Robust Startup** - Shell wrapper and systemd service implemented
+3. ✅ **Credential Configuration** - Initialization wizard updated
+4. ⏳ **ROI Configuration** - Set up table/region polygons for detection
+5. ⏳ **Cloud Upload Pipeline** - Results to Supabase after processing
+6. ⏳ **Monitoring Dashboard** - Real-time status, GPU usage, disk space
+7. ⏳ **Database Cleanup** - Auto-rotate old sessions, compress screenshots

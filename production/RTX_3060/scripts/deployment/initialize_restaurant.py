@@ -229,7 +229,11 @@ class RestaurantInitializer:
         return f"{city_clean}_{restaurant_clean}_{area_clean}"
 
     def collect_camera_info(self):
-        """Interactive collection of camera configurations"""
+        """Interactive collection of camera configurations
+
+        Version: 1.1.0
+        Added: Username and password collection for each camera
+        """
         print("Camera Configuration:")
         print("(Enter camera IP addresses. Press Enter on empty line to finish)")
         print()
@@ -251,6 +255,15 @@ class RestaurantInitializer:
             # Generate camera_id from IP (last segment)
             camera_id = self._generate_camera_id(ip_address)
 
+            # RTSP Credentials (IMPORTANT!)
+            print("  RTSP Credentials:")
+            username = input(f"    Username (default: admin): ").strip() or "admin"
+            password = input(f"    Password (default: 123456): ").strip() or "123456"
+
+            # Port (optional)
+            port_input = input(f"  Port (default: 554): ").strip()
+            port = int(port_input) if port_input else 554
+
             # Camera name (optional)
             camera_name = input(f"  Camera Name (optional, default: Camera {camera_num}): ").strip()
             if not camera_name:
@@ -262,10 +275,11 @@ class RestaurantInitializer:
             # Resolution (optional)
             resolution = input(f"  Resolution (optional, e.g., 2592x1944): ").strip() or None
 
-            # RTSP endpoint (auto-generate or custom)
-            default_rtsp = f"rtsp://{ip_address}:554/cam/realmonitor?channel=1&subtype=0&unicast=true&proto=Onvif"
-            rtsp_custom = input(f"  Custom RTSP endpoint? (Enter to use default /cam/realmonitor...): ").strip()
-            rtsp_endpoint = rtsp_custom if rtsp_custom else default_rtsp
+            # Stream path (optional)
+            stream_path = input(f"  Stream Path (default: /media/video1): ").strip() or "/media/video1"
+
+            # Build RTSP endpoint with credentials
+            rtsp_endpoint = f"rtsp://{username}:{password}@{ip_address}:{port}{stream_path}"
 
             # Store camera info
             camera_info = {
@@ -277,7 +291,12 @@ class RestaurantInitializer:
                 'camera_type': 'UNV',
                 'resolution': resolution,
                 'division_name': division_name,
-                'status': 'active'
+                'status': 'active',
+                # Store credentials for config file
+                'username': username,
+                'password': password,
+                'port': port,
+                'stream_path': stream_path
             }
 
             self.cameras.append(camera_info)
@@ -430,10 +449,10 @@ class RestaurantInitializer:
 
             cameras_for_capture[cam['camera_id']] = {
                 'ip': cam['camera_ip_address'],
-                'port': 554,  # Default RTSP port
-                'username': 'admin',  # Default username (TODO: make configurable)
-                'password': '123456',  # Default password (TODO: make configurable)
-                'stream_path': stream_path,
+                'port': cam.get('port', 554),
+                'username': cam.get('username', 'admin'),
+                'password': cam.get('password', '123456'),
+                'stream_path': cam.get('stream_path', stream_path),
                 'resolution': resolution,
                 'fps': 20,  # Default FPS
                 'division_name': cam.get('division_name', ''),
