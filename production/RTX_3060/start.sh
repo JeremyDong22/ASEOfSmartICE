@@ -121,53 +121,44 @@ is_systemd_installed() {
     systemctl list-unit-files | grep -q "ase_surveillance.service"
 }
 
-# Auto-install systemd if not present
+# Auto-install/update systemd service
 ensure_systemd_installed() {
-    if is_systemd_installed; then
-        log_info "✅ Systemd service already installed"
-        return 0
-    fi
+    local service_source="$PROJECT_ROOT/scripts/deployment/ase_surveillance.service"
+    local service_target="/etc/systemd/system/ase_surveillance.service"
 
-    log_warn "⚠️  Systemd service not installed"
-    log_info ""
-    log_info "For production reliability, this service should be managed by systemd."
-    log_info "This provides:"
-    log_info "  • Auto-restart on crash"
-    log_info "  • Auto-start on system boot"
-    log_info "  • OS-level process management"
-    log_info "  • Integrated logging (journalctl)"
-    log_info ""
+    # Check if service file needs installation or update
+    local needs_install=false
 
-    if [ "${DAEMON_MODE:-false}" = "true" ]; then
-        # In daemon mode, install automatically without asking
-        log_info "Installing systemd service automatically..."
-    else
-        # In interactive mode, ask for confirmation
-        read -p "Install systemd service now? (y/n): " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            log_warn "Systemd not installed. Using shell-based protection instead."
-            return 1
+    if ! is_systemd_installed; then
+        needs_install=true
+        log_warn "⚠️  Systemd service not installed"
+    elif [ -f "$service_target" ]; then
+        # Check if source is newer or different
+        if ! cmp -s "$service_source" "$service_target" 2>/dev/null; then
+            needs_install=true
+            log_info "📝 Systemd service file updated, reinstalling..."
         fi
     fi
 
-    # Install systemd
-    local systemd_installer="$PROJECT_ROOT/scripts/deployment/install_service.sh"
-
-    if [ ! -f "$systemd_installer" ]; then
-        log_error "❌ Systemd installer not found: $systemd_installer"
-        return 1
+    if [ "$needs_install" = "false" ]; then
+        log_info "✅ Systemd service up to date"
+        return 0
     fi
 
+    # Auto-install without prompting
     log_info ""
-    log_info "Installing systemd service (requires sudo)..."
-    sudo bash "$systemd_installer"
+    log_info "Installing/updating systemd service (requires sudo)..."
 
-    if is_systemd_installed; then
+    # Copy service file
+    if sudo cp "$service_source" "$service_target" 2>/dev/null; then
+        sudo systemctl daemon-reload
+        sudo systemctl enable ase_surveillance 2>/dev/null
         log_info "✅ Systemd service installed successfully!"
+        log_info "   • Auto-restart on crash"
+        log_info "   • Auto-start on boot"
         return 0
     else
-        log_error "❌ Systemd installation failed"
+        log_error "❌ Systemd installation failed (需要sudo权限)"
         return 1
     fi
 }
