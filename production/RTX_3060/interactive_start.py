@@ -1,20 +1,35 @@
 #!/usr/bin/env python3
 """
-ASE Restaurant Surveillance System - Interactive Startup Wizard v3.0
+ASE Restaurant Surveillance System - Configuration Library v3.0
 Created: 2025-11-16
-Modified: 2025-11-16 - Comprehensive interactive configuration and testing system
+Modified: 2025-11-16 - Library for configuration functionality (imported by initialize_restaurant.py)
+
+⚠️  NOTICE: This file is a LIBRARY, not an entry point!
+    DO NOT execute this file directly.
+
+    For system configuration, use:
+        python3 main.py --configure
+
+    This file provides the InteractiveStartup class used by:
+    - scripts/deployment/initialize_restaurant.py (imports and extends this class)
 
 Purpose:
+- Provides reusable InteractiveStartup class for configuration wizards
 - Interactive configuration review and editing
 - Comprehensive camera connection testing
 - Feature overview and system verification
-- Verbose feedback at every step
-- Foolproof startup with error recovery
+- Per-camera ROI configuration with interactive drawing
 
-Usage:
-    python3 interactive_start.py                # Full interactive mode
-    python3 interactive_start.py --quick        # Skip confirmations (expert mode)
-    python3 interactive_start.py --test-only    # Test cameras without starting
+Status: LIBRARY (imported by initialize_restaurant.py)
+
+Legacy Usage (DEPRECATED - DO NOT USE):
+    python3 interactive_start.py                # ❌ Don't use - use main.py instead
+    python3 interactive_start.py --quick        # ❌ Don't use - use main.py instead
+    python3 interactive_start.py --test-only    # ❌ Don't use - use main.py instead
+
+New Usage (v4.0 Architecture):
+    python3 main.py --configure                 # ✅ Use this for configuration
+    sudo systemctl start ase_surveillance       # ✅ Use this for production startup
 """
 
 import os

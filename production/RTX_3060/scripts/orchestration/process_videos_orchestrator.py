@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 """
 Multi-Camera Video Processing Orchestrator with Dynamic GPU Worker Management
-Version: 3.0.0
-Last Updated: 2025-11-14
+Version: 3.1.0
+Last Updated: 2025-11-16
+
+Modified 2025-11-16:
+- Added date filtering to skip today's videos (process only yesterday and earlier)
+- Added database duplicate check to skip already processed videos
+- Prevents processing incomplete/currently-recording videos
 
 Purpose: Intelligent GPU-aware orchestration of multi-camera video processing
 Uses dynamic worker scaling based on real-time GPU metrics
@@ -43,10 +48,11 @@ import queue
 import time
 import logging
 import json
+import sqlite3
 from pathlib import Path
 from datetime import datetime, timedelta
 from collections import defaultdict
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Set
 import argparse
 import re
 import sys
@@ -70,6 +76,7 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 VIDEOS_DIR = SCRIPT_DIR.parent.parent / "videos"
 LOGS_DIR = SCRIPT_DIR.parent.parent / "logs"
 DETECTION_SCRIPT = SCRIPT_DIR.parent / "video_processing" / "table_and_region_state_detection.py"
+DATABASE_PATH = SCRIPT_DIR.parent.parent / "db" / "detection_data.db"
 
 # GPU monitoring settings
 GPU_CHECK_INTERVAL = 30  # Check GPU health every 30 seconds
@@ -388,6 +395,67 @@ def cleanup_old_logs(logs_dir: Path, retention_days: int):
 
 
 # ============================================================================
+# DATABASE DUPLICATE CHECKING
+# ============================================================================
+
+def get_processed_videos(logger: logging.Logger) -> Set[str]:
+    """
+    Get set of already processed video filenames from database
+
+    Returns: Set of video filenames that have been processed
+    """
+    processed_videos = set()
+
+    if not DATABASE_PATH.exists():
+        logger.warning(f"Database not found at {DATABASE_PATH}, skipping duplicate check")
+        return processed_videos
+
+    try:
+        conn = sqlite3.connect(str(DATABASE_PATH))
+        cursor = conn.cursor()
+
+        # Query videos table for processed videos
+        # is_processed = 1 means video has been successfully processed
+        cursor.execute("""
+            SELECT video_filename
+            FROM videos
+            WHERE is_processed = 1
+        """)
+
+        for row in cursor.fetchall():
+            processed_videos.add(row[0])
+
+        conn.close()
+        logger.info(f"Found {len(processed_videos)} already processed videos in database")
+
+    except sqlite3.Error as e:
+        logger.error(f"Database error while checking for duplicates: {e}")
+
+    return processed_videos
+
+
+def extract_date_from_path(video_path: str) -> Optional[str]:
+    """
+    Extract date from video path structure: videos/YYYYMMDD/camera_id/filename.mp4
+
+    Returns: Date string in YYYYMMDD format, or None if not found
+    """
+    path = Path(video_path)
+
+    # Try to find YYYYMMDD in path parts
+    for part in path.parts:
+        if re.match(r'^\d{8}$', part):
+            return part
+
+    # Fallback: Try to extract from filename (camera_35_YYYYMMDD_HHMMSS.mp4)
+    match = re.search(r'_(\d{8})_', path.name)
+    if match:
+        return match.group(1)
+
+    return None
+
+
+# ============================================================================
 # VIDEO DISCOVERY
 # ============================================================================
 
@@ -407,11 +475,20 @@ def extract_timestamp(video_filename: str) -> str:
     return "00000000_000000"  # Default for sorting
 
 
-def discover_videos(videos_dir: Path, camera_filter: Optional[List[str]] = None) -> Dict[str, List[str]]:
+def discover_videos(videos_dir: Path, camera_filter: Optional[List[str]] = None,
+                   logger: Optional[logging.Logger] = None) -> Dict[str, List[str]]:
     """
-    Discover all videos in videos directory
+    Discover videos in videos directory, filtering by date and checking for duplicates
 
     Expected structure: videos/YYYYMMDD/camera_id/camera_id_YYYYMMDD_HHMMSS.mp4
+
+    Date filtering:
+    - Only includes videos from YESTERDAY and earlier (current_date - 1)
+    - Skips TODAY's videos (may still be recording)
+
+    Duplicate checking:
+    - Queries database for already processed videos
+    - Skips videos that exist in videos table with is_processed = 1
 
     Returns: dict of {camera_id: [video_paths]} sorted by timestamp (oldest first)
     """
@@ -420,22 +497,73 @@ def discover_videos(videos_dir: Path, camera_filter: Optional[List[str]] = None)
     if not videos_dir.exists():
         return videos_by_camera
 
+    # Get current date and yesterday's date (cutoff for processing)
+    today = datetime.now().strftime("%Y%m%d")
+    yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y%m%d")
+
+    if logger:
+        logger.info(f"Date filter: Processing videos from {yesterday} and earlier (skipping today: {today})")
+
+    # Get already processed videos from database
+    processed_videos = get_processed_videos(logger) if logger else set()
+
+    # Counters for logging
+    total_found = 0
+    skipped_today = 0
+    skipped_duplicate = 0
+    added = 0
+
     # Find all mp4 files in date/camera_id structure
     for video_file in videos_dir.rglob("*.mp4"):
-        camera_id = extract_camera_id(video_file.name)
+        total_found += 1
 
+        camera_id = extract_camera_id(video_file.name)
         if not camera_id:
             continue
 
-        # Filter if specified
+        # Filter by camera if specified
         if camera_filter and camera_id not in camera_filter:
             continue
 
+        # Extract date from path (videos/YYYYMMDD/camera_id/...)
+        video_date = extract_date_from_path(str(video_file))
+
+        # Skip today's videos (may still be recording)
+        if video_date == today:
+            skipped_today += 1
+            if logger:
+                logger.debug(f"Skipping today's video: {video_file.name}")
+            continue
+
+        # Skip videos without valid date (shouldn't happen with proper structure)
+        if not video_date:
+            if logger:
+                logger.warning(f"Could not extract date from: {video_file}")
+            continue
+
+        # Check if already processed in database
+        if video_file.name in processed_videos:
+            skipped_duplicate += 1
+            if logger:
+                logger.debug(f"Skipping already processed: {video_file.name}")
+            continue
+
+        # Add to processing list
         videos_by_camera[camera_id].append(str(video_file))
+        added += 1
 
     # Sort videos by timestamp within each camera (oldest first for priority queue)
     for camera_id in videos_by_camera:
         videos_by_camera[camera_id].sort(key=lambda v: extract_timestamp(os.path.basename(v)))
+
+    # Log summary
+    if logger:
+        logger.info(f"Video discovery summary:")
+        logger.info(f"  Total videos found: {total_found}")
+        logger.info(f"  Skipped (today): {skipped_today}")
+        logger.info(f"  Skipped (already processed): {skipped_duplicate}")
+        logger.info(f"  Added to queue: {added}")
+        logger.info(f"  Cameras: {len(videos_by_camera)}")
 
     return dict(videos_by_camera)
 
@@ -863,17 +991,31 @@ Examples:
 
 Workflow:
 1. Script scans videos/ folder for all .mp4 files
-2. Groups videos by camera_id (extracted from filename)
-3. Creates priority queue (older videos first)
-4. Starts with 1 worker thread
-5. GPU monitoring thread checks metrics every 30s
-6. Dynamically scales workers based on real-time GPU health:
+2. Filters videos by date (only YESTERDAY and earlier, skips TODAY)
+3. Checks database for already processed videos (skips duplicates)
+4. Groups videos by camera_id (extracted from filename)
+5. Creates priority queue (older videos first)
+6. Starts with 1 worker thread
+7. GPU monitoring thread checks metrics every 30s
+8. Dynamically scales workers based on real-time GPU health:
    - Scale UP if: temp <70°C AND util <70% AND mem >2GB (conservative)
    - Scale DOWN if: temp >75°C OR util >85% OR mem <1GB (aggressive)
    - Emergency stop: temp >=80°C (reduce to minimum, wait 2 mins)
    - Cooldown: 60 seconds between scaling decisions
-7. Logs all events to logs/processing_YYYYMMDD_HHMMSS.log
-8. Generates statistics report at completion
+9. Logs all events to logs/processing_YYYYMMDD_HHMMSS.log
+10. Generates statistics report at completion
+
+Date Filtering (v3.1.0):
+- Only processes videos from YESTERDAY (current_date - 1) and earlier
+- Skips TODAY's videos to avoid processing incomplete/recording files
+- Extracts date from folder structure: videos/YYYYMMDD/camera_id/
+- Prevents errors from processing 18GB+ incomplete videos
+
+Duplicate Prevention (v3.1.0):
+- Queries local database (db/detection_data.db)
+- Checks videos table for is_processed = 1
+- Skips videos already successfully processed
+- Prevents wasted GPU cycles on re-processing
 
 Video Naming Convention:
   camera_{id}_{date}_{time}.mp4
@@ -916,9 +1058,9 @@ Log Files:
     videos_dir = Path(args.videos_dir)
     config_path = args.config
 
-    # Discover videos
+    # Discover videos (with date filtering and duplicate checking)
     logger.info(f"Scanning for videos in: {videos_dir}")
-    videos_by_camera = discover_videos(videos_dir, args.cameras)
+    videos_by_camera = discover_videos(videos_dir, args.cameras, logger)
 
     if not videos_by_camera:
         logger.error("No videos found")
