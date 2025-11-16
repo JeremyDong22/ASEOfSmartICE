@@ -218,6 +218,7 @@ start_service() {
     fi
 
     # Ensure systemd is installed (auto-install if needed)
+    # Skip if already running under systemd (daemon mode)
     log_info ""
     log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     log_info "🛡️  CRASH PROTECTION SETUP"
@@ -225,7 +226,11 @@ start_service() {
     log_info ""
 
     local use_systemd=true
-    if ! ensure_systemd_installed; then
+    if [ "${DAEMON_MODE:-false}" = "true" ]; then
+        # Already running under systemd, skip installation check
+        log_info "✅ Running under systemd supervision"
+        use_systemd=false  # Use direct mode since systemd already manages us
+    elif ! ensure_systemd_installed; then
         use_systemd=false
     fi
 
