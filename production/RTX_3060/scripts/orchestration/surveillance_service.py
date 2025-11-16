@@ -60,7 +60,7 @@ CONFIG_DIR = PROJECT_ROOT / "scripts" / "config"
 # Operating hours - Multiple capture windows per day
 CAPTURE_WINDOWS = [
     {"start_hour": 11, "start_minute": 30, "end_hour": 14, "end_minute": 0},  # 11:30 AM - 2:00 PM (lunch)
-    {"start_hour": 16, "start_minute": 30, "end_hour": 22, "end_minute": 0}    # 4:30 PM - 10:00 PM (dinner)
+    {"start_hour": 17, "start_minute": 0, "end_hour": 22, "end_minute": 0}     # 5:00 PM - 10:00 PM (dinner)
 ]
 PROCESS_START_HOUR = 0   # 12:00 AM (midnight)
 PROCESS_END_HOUR = 23    # 11:00 PM (target completion time - warning if exceeded)
