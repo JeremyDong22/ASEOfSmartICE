@@ -19,77 +19,122 @@ Production deployment folder for RTX 3060 machine at 野百灵火锅店 (Ye Bai 
 
 **Purpose:** Real-time restaurant surveillance system using computer vision to monitor table states and staff coverage across multiple camera feeds.
 
-## Quick Start - New Deployment
+## Quick Start - New Deployment (v4.0)
 
-### **Option 1: Automated Startup (Recommended for Production)**
-
-```bash
-cd /path/to/production/RTX_3060
-
-# Use robust shell wrapper with auto-restart
-./start.sh                  # Start service (background with auto-restart)
-./start.sh --foreground     # Run in foreground (debug mode)
-./start.sh --status         # Check service status
-./start.sh --stop           # Stop service
-./start.sh --logs           # View logs
-```
-
-**Features:**
-- Auto-restart on crash
-- Pre-flight checks (database, models, disk space)
-- Graceful shutdown handling
-- Comprehensive logging
-
-### **Option 2: Systemd Service (Permanent Deployment)**
-
-```bash
-cd scripts/deployment
-sudo ./install_service.sh
-
-# Service commands
-sudo systemctl start ase_surveillance
-sudo systemctl stop ase_surveillance
-sudo systemctl status ase_surveillance
-sudo systemctl enable ase_surveillance  # Auto-start on boot
-```
-
-**Features:**
-- OS-level daemon protection
-- Auto-start on boot
-- Restart on failure
-- Integrated with system journal
-
-### **Option 3: Python Direct (Development/Testing)**
+### **Unified Entry Point**
 
 ```bash
 cd /path/to/production/RTX_3060
-python3 start.py
+
+# Main entry point (interactive menu)
+python3 main.py
+
+# Or direct commands
+python3 main.py --configure    # Configure system
+python3 main.py --start        # Start service (dev mode)
 ```
 
-This is the main application entry point that:
-- Checks if system is initialized
-- Guides you through setup if needed
-- Starts automated surveillance service
+**What main.py does:**
+- Interactive menu for all operations
+- Guides you through configuration
+- Shows production deployment instructions
+- Simple, clear interface
 
 ---
 
-## Initial Deployment Workflow
+## Complete Deployment Workflow
+
+### **Step 1: System Configuration (First Time Only)**
 
 ```bash
-# Step 1: Initialize restaurant location and cameras
+# Interactive configuration wizard
+python3 main.py --configure
+
+# OR directly call the configuration script
 python3 scripts/deployment/initialize_restaurant.py
-# - Enter city, restaurant name, commercial area
-# - Add cameras with IP, username, password for each
-# - System creates configuration files and database
+```
 
-# Step 2: (Optional) Manage cameras
-python3 scripts/deployment/manage_cameras.py
-# - Add/remove/edit cameras anytime
-# - Test RTSP connections
-# - Update configurations
+**What gets configured:**
+- ✅ Restaurant location (city, name, commercial area)
+- ✅ Camera management (add/edit/delete cameras with full credentials)
+- ✅ Camera connection testing (RTSP validation)
+- ✅ ROI configuration (interactive table/region drawing)
+- ✅ System settings (capture hours, processing windows)
 
-# Step 3: Start service
-./start.sh
+**This step does NOT start the service** - it only configures!
+
+### **Step 2: Install Systemd Service (Production)**
+
+```bash
+# Install systemd service (one-time setup)
+sudo cp scripts/deployment/ase_surveillance.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable ase_surveillance
+```
+
+### **Step 3: Start Service**
+
+```bash
+# Production (recommended)
+sudo systemctl start ase_surveillance
+
+# Management commands
+sudo systemctl status ase_surveillance   # Check status
+sudo systemctl stop ase_surveillance     # Stop
+sudo systemctl restart ase_surveillance  # Restart
+sudo journalctl -u ase_surveillance -f   # View logs
+```
+
+**Systemd Features:**
+- ✅ Auto-restart on crash
+- ✅ Auto-start on boot
+- ✅ System-level resource management
+- ✅ Integrated logging
+- ✅ No PID file conflicts
+
+---
+
+## Architecture Overview (v4.0)
+
+### **Entry Points**
+
+| File | Purpose | When to Use |
+|------|---------|-------------|
+| `main.py` | Unified entry point | Interactive menu for all operations |
+| `scripts/deployment/initialize_restaurant.py` | Complete configuration wizard | First-time setup or reconfiguration |
+| `interactive_start.py` | ~~Legacy~~ (kept for reference) | ~~Use main.py instead~~ |
+| `start.sh` | ~~Legacy~~ (deprecated) | ~~Use systemd instead~~ |
+
+### **Service Management**
+
+| Environment | Command | Notes |
+|-------------|---------|-------|
+| **Production** | `sudo systemctl start ase_surveillance` | Systemd manages Python service directly |
+| **Development** | `python3 main.py --start` | Direct Python execution (not systemd) |
+| **Testing** | `python3 scripts/orchestration/surveillance_service.py start --foreground` | Foreground mode with logs |
+
+### **Configuration vs Startup (Clear Separation)**
+
+```
+┌─────────────────────────────────────┐
+│  CONFIGURATION (One-Time)           │
+│  main.py --configure                │
+│  └─> initialize_restaurant.py      │
+│      ├─ Camera setup                │
+│      ├─ ROI drawing                 │
+│      ├─ System settings             │
+│      └─ NO STARTUP!                 │
+└─────────────────────────────────────┘
+              ↓
+┌─────────────────────────────────────┐
+│  STARTUP (Daily Production)         │
+│  systemctl start ase_surveillance   │
+│  └─> surveillance_service.py       │
+│      ├─ Video capture               │
+│      ├─ Video processing            │
+│      ├─ Monitoring                  │
+│      └─ Auto-restart on crash       │
+└─────────────────────────────────────┘
 ```
 
 ## Business Context
@@ -712,6 +757,57 @@ python3 scripts/deployment/manage_cameras.py --add
 
 **Impact:** Production-grade reliability with automatic crash recovery and system-level daemon protection.
 
+### 4. Architecture Refactoring v4.0 (2025-11-16)
+**Files:** `main.py` (new), `scripts/deployment/initialize_restaurant.py` (refactored)
+
+**Problem:** Confusing architecture with overlapping responsibilities:
+- `start.sh` mixed configuration and startup
+- `interactive_start.py` mixed configuration and service launching
+- `initialize_restaurant.py` incomplete (missing ROI, camera editing)
+- PID file conflicts between multiple startup methods
+- Unclear separation between configuration and production deployment
+
+**Solution:** Complete architecture refactoring with clear separation:
+
+**New Architecture:**
+```
+main.py (Unified Entry Point)
+  ├─ Interactive menu for all operations
+  ├─ Configuration → initialize_restaurant.py
+  ├─ View config → Read-only display
+  ├─ Start service (dev) → Direct Python call
+  └─ Production guide → Systemd instructions
+
+initialize_restaurant.py v4.0 (Configuration Only)
+  ├─ Complete configuration wizard (merged from interactive_start.py)
+  ├─ Camera CRUD (add/edit/delete)
+  ├─ ROI interactive drawing
+  ├─ System health checks
+  └─ NO SERVICE STARTUP (redirects to systemd)
+
+systemd (Production Startup)
+  └─ surveillance_service.py (Direct, no wrappers)
+```
+
+**Key Changes:**
+- ✅ `main.py` - Single, clear entry point for all operations
+- ✅ `initialize_restaurant.py` - All configuration features, zero startup code
+- ✅ Deprecated `start.sh` and `interactive_start.py` (kept for reference)
+- ✅ Systemd as sole production startup method
+- ✅ Clear documentation of configuration vs startup separation
+
+**Benefits:**
+- 🎯 Clear responsibility: Configure once, start with systemd
+- 🚀 No PID file conflicts (systemd manages process directly)
+- 📖 Simpler user workflow (main.py → configure → systemctl start)
+- 🔧 All interactive features in one place (initialize_restaurant.py)
+- 💪 Production-ready with system-level daemon protection
+
+**Migration Path:**
+- Old: `./start.sh` → New: `python3 main.py` then `systemctl start`
+- Old: `interactive_start.py` → New: `main.py --configure`
+- Old: Basic `initialize_restaurant.py` → New: Full-featured configuration wizard
+
 ---
 
 ## Next Steps for Production
@@ -719,7 +815,8 @@ python3 scripts/deployment/manage_cameras.py --add
 1. ✅ **Camera Management** - Tool created for add/remove/edit cameras
 2. ✅ **Robust Startup** - Shell wrapper and systemd service implemented
 3. ✅ **Credential Configuration** - Initialization wizard updated
-4. ⏳ **ROI Configuration** - Set up table/region polygons for detection
-5. ⏳ **Cloud Upload Pipeline** - Results to Supabase after processing
-6. ⏳ **Monitoring Dashboard** - Real-time status, GPU usage, disk space
-7. ⏳ **Database Cleanup** - Auto-rotate old sessions, compress screenshots
+4. ✅ **Architecture Refactoring** - v4.0 complete (main.py + clear separation)
+5. ⏳ **ROI Configuration** - Set up table/region polygons for detection
+6. ⏳ **Cloud Upload Pipeline** - Results to Supabase after processing
+7. ⏳ **Monitoring Dashboard** - Real-time status, GPU usage, disk space
+8. ⏳ **Database Cleanup** - Auto-rotate old sessions, compress screenshots

@@ -56,20 +56,43 @@ sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 PID_FILE = PROJECT_ROOT / "surveillance_service.pid"
 LOG_FILE = PROJECT_ROOT / "logs" / "surveillance_service.log"
 CONFIG_DIR = PROJECT_ROOT / "scripts" / "config"
+SYSTEM_CONFIG_FILE = CONFIG_DIR / "system_config.json"
 
-# Operating hours - Multiple capture windows per day
-CAPTURE_WINDOWS = [
-    {"start_hour": 11, "start_minute": 30, "end_hour": 14, "end_minute": 0},  # 11:30 AM - 2:00 PM (lunch)
-    {"start_hour": 17, "start_minute": 0, "end_hour": 22, "end_minute": 0}     # 5:00 PM - 10:00 PM (dinner)
-]
-PROCESS_START_HOUR = 0   # 12:00 AM (midnight)
-PROCESS_END_HOUR = 23    # 11:00 PM (target completion time - warning if exceeded)
+# Load system configuration
+def load_system_config():
+    """Load system configuration from JSON file"""
+    if SYSTEM_CONFIG_FILE.exists():
+        with open(SYSTEM_CONFIG_FILE) as f:
+            return json.load(f)
+    else:
+        # Return defaults if config file doesn't exist
+        return {
+            "capture_windows": [
+                {"start_hour": 11, "start_minute": 30, "end_hour": 14, "end_minute": 0},
+                {"start_hour": 17, "start_minute": 30, "end_hour": 22, "end_minute": 0}
+            ],
+            "processing_window": {"start_hour": 0, "end_hour": 23},
+            "monitoring_intervals": {
+                "disk_check_seconds": 3600,
+                "gpu_check_seconds": 300,
+                "db_sync_seconds": 3600,
+                "health_check_seconds": 1800
+            }
+        }
 
-# Monitoring intervals (seconds)
-DISK_CHECK_INTERVAL = 3600      # 1 hour
-GPU_CHECK_INTERVAL = 300        # 5 minutes
-DB_SYNC_INTERVAL = 3600         # 1 hour
-HEALTH_CHECK_INTERVAL = 1800    # 30 minutes
+# Load configuration
+_config = load_system_config()
+
+# Operating hours - Loaded from config
+CAPTURE_WINDOWS = _config["capture_windows"]
+PROCESS_START_HOUR = _config["processing_window"]["start_hour"]
+PROCESS_END_HOUR = _config["processing_window"]["end_hour"]
+
+# Monitoring intervals (seconds) - Loaded from config
+DISK_CHECK_INTERVAL = _config["monitoring_intervals"]["disk_check_seconds"]
+GPU_CHECK_INTERVAL = _config["monitoring_intervals"]["gpu_check_seconds"]
+DB_SYNC_INTERVAL = _config["monitoring_intervals"]["db_sync_seconds"]
+HEALTH_CHECK_INTERVAL = _config["monitoring_intervals"]["health_check_seconds"]
 
 
 class SurveillanceService:
@@ -84,6 +107,10 @@ class SurveillanceService:
         self.capture_process = None
         self.processing_process = None
         self.current_capture_window = None  # Track which window is currently active
+
+        # Thread locks to prevent race conditions
+        self.capture_lock = threading.Lock()
+        self.processing_lock = threading.Lock()
 
         # Monitoring threads
         self.threads = []
@@ -156,76 +183,78 @@ class SurveillanceService:
         return (False, None)
 
     def start_video_capture(self):
-        """Start video capture if in any capture window"""
-        in_window, window = self.is_in_capture_window()
+        """Start video capture if in any capture window (thread-safe)"""
+        with self.capture_lock:  # Prevent race condition from multiple threads
+            in_window, window = self.is_in_capture_window()
 
-        if not in_window:
-            self.logger.info("Outside capture windows, skipping video capture")
-            return
+            if not in_window:
+                self.logger.info("Outside capture windows, skipping video capture")
+                return
 
-        if self.capture_process and self.capture_process.poll() is None:
-            self.logger.info("Video capture already running")
-            return
+            if self.capture_process and self.capture_process.poll() is None:
+                self.logger.info("Video capture already running")
+                return
 
-        # Determine which window (morning or evening)
-        window_name = "morning" if window["start_hour"] == 11 else "evening"
-        self.logger.info(f"Starting video capture ({window_name} window)...")
-        capture_script = PROJECT_ROOT / "scripts" / "video_capture" / "capture_rtsp_streams.py"
+            # Determine which window (morning or evening)
+            window_name = "morning" if window["start_hour"] == 11 else "evening"
+            self.logger.info(f"Starting video capture ({window_name} window)...")
+            capture_script = PROJECT_ROOT / "scripts" / "video_capture" / "capture_rtsp_streams.py"
 
-        # Calculate duration until end of current capture window
-        now = datetime.now()
-        end_time = now.replace(
-            hour=window["end_hour"],
-            minute=window["end_minute"],
-            second=0,
-            microsecond=0
-        )
-
-        if end_time <= now:
-            # Already past end time for this window
-            self.logger.warning(f"Already past end time for {window_name} window")
-            return
-
-        duration = int((end_time - now).total_seconds())
-
-        try:
-            self.capture_process = subprocess.Popen(
-                ["python3", str(capture_script), "--duration", str(duration)],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
+            # Calculate duration until end of current capture window
+            now = datetime.now()
+            end_time = now.replace(
+                hour=window["end_hour"],
+                minute=window["end_minute"],
+                second=0,
+                microsecond=0
             )
-            self.current_capture_window = window  # Track active window
-            self.logger.info(f"Video capture started (PID: {self.capture_process.pid}, {window_name} window, duration: {duration}s)")
-        except Exception as e:
-            self.logger.error(f"Failed to start video capture: {e}")
+
+            if end_time <= now:
+                # Already past end time for this window
+                self.logger.warning(f"Already past end time for {window_name} window")
+                return
+
+            duration = int((end_time - now).total_seconds())
+
+            try:
+                self.capture_process = subprocess.Popen(
+                    ["python3", str(capture_script), "--duration", str(duration)],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE
+                )
+                self.current_capture_window = window  # Track active window
+                self.logger.info(f"Video capture started (PID: {self.capture_process.pid}, {window_name} window, duration: {duration}s)")
+            except Exception as e:
+                self.logger.error(f"Failed to start video capture: {e}")
 
     def start_video_processing(self):
         """
-        Start video processing if in processing hours
+        Start video processing if in processing hours (thread-safe)
         Processes previous day's videos captured during 11:30 AM - 2 PM and 5 PM - 10 PM
         Target completion: 11 PM (warning logged if exceeded)
         """
-        if not self.is_in_time_window(PROCESS_START_HOUR, PROCESS_END_HOUR):
-            self.logger.info("Outside processing hours, skipping video processing")
-            return
+        with self.processing_lock:  # Prevent race condition from multiple threads
+            if not self.is_in_time_window(PROCESS_START_HOUR, PROCESS_END_HOUR):
+                self.logger.info("Outside processing hours, skipping video processing")
+                return
 
-        if self.processing_process and self.processing_process.poll() is None:
-            self.logger.info("Video processing already running")
-            return
+            if self.processing_process and self.processing_process.poll() is None:
+                self.logger.info("Video processing already running")
+                return
 
-        self.logger.info("Starting video processing (previous day's footage)...")
-        self.logger.info(f"Target completion: {PROCESS_END_HOUR:02d}:00 (warning if exceeded)")
-        orchestrator_script = PROJECT_ROOT / "scripts" / "orchestration" / "process_videos_orchestrator.py"
+            self.logger.info("Starting video processing (previous day's footage)...")
+            self.logger.info(f"Target completion: {PROCESS_END_HOUR:02d}:00 (warning if exceeded)")
+            orchestrator_script = PROJECT_ROOT / "scripts" / "orchestration" / "process_videos_orchestrator.py"
 
-        try:
-            self.processing_process = subprocess.Popen(
-                ["python3", str(orchestrator_script)],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
-            )
-            self.logger.info(f"Video processing started (PID: {self.processing_process.pid})")
-        except Exception as e:
-            self.logger.error(f"Failed to start video processing: {e}")
+            try:
+                self.processing_process = subprocess.Popen(
+                    ["python3", str(orchestrator_script)],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE
+                )
+                self.logger.info(f"Video processing started (PID: {self.processing_process.pid})")
+            except Exception as e:
+                self.logger.error(f"Failed to start video processing: {e}")
 
     def monitor_disk_space(self):
         """Monitor disk space continuously"""

@@ -328,16 +328,66 @@ class InteractiveStartup:
                             self.roi_config[first_cam] = legacy_data
                             print(f"{Colors.YELLOW}⚠️  Migrating legacy ROI config to {first_cam}_roi.json{Colors.RESET}")
 
-        # Load system settings (defaults)
-        self.system_settings = {
-            "capture_hours": "11:00 AM - 9:00 PM",
-            "processing_hours": "11:00 PM - 6:00 AM",
-            "analysis_fps": 5,
-            "detection_mode": "Combined (Tables + Regions)",
-            "supabase_sync": self.check_supabase_enabled(),
-            "monitoring_enabled": True,
-            "auto_restart": True
-        }
+        # Load system settings from unified config file
+        self.load_system_settings()
+
+    def load_system_settings(self):
+        """Load system settings from system_config.json"""
+        system_config_file = CONFIG_DIR / "system_config.json"
+
+        if system_config_file.exists():
+            with open(system_config_file) as f:
+                config = json.load(f)
+
+            # Format capture hours display
+            capture_windows = config.get("capture_windows", [])
+            capture_hours_parts = []
+            for window in capture_windows:
+                start = f"{window['start_hour']}:{window['start_minute']:02d}"
+                end = f"{window['end_hour']}:{window['end_minute']:02d}"
+                # Convert to 12-hour format
+                start_12h = self.format_time_12h(window['start_hour'], window['start_minute'])
+                end_12h = self.format_time_12h(window['end_hour'], window['end_minute'])
+                capture_hours_parts.append(f"{start_12h} - {end_12h}")
+
+            capture_hours = ", ".join(capture_hours_parts)
+
+            # Format processing hours
+            proc_win = config.get("processing_window", {})
+            proc_start = self.format_time_12h(proc_win.get("start_hour", 0), 0)
+            proc_end = self.format_time_12h(proc_win.get("end_hour", 23), 0)
+            processing_hours = f"{proc_start} - {proc_end}"
+
+            self.system_settings = {
+                "capture_hours": capture_hours,
+                "processing_hours": processing_hours,
+                "analysis_fps": config.get("analysis_settings", {}).get("fps", 5),
+                "detection_mode": "Combined (Tables + Regions)",
+                "supabase_sync": self.check_supabase_enabled(),
+                "monitoring_enabled": config.get("monitoring_enabled", True),
+                "auto_restart": config.get("auto_restart_enabled", True)
+            }
+            self.system_config = config  # Store full config for editing
+        else:
+            # Defaults if config doesn't exist
+            self.system_settings = {
+                "capture_hours": "11:30 AM - 2:00 PM, 5:30 PM - 10:00 PM",
+                "processing_hours": "12:00 AM - 11:00 PM",
+                "analysis_fps": 5,
+                "detection_mode": "Combined (Tables + Regions)",
+                "supabase_sync": self.check_supabase_enabled(),
+                "monitoring_enabled": True,
+                "auto_restart": True
+            }
+            self.system_config = None
+
+    def format_time_12h(self, hour, minute):
+        """Convert 24h time to 12h format"""
+        period = "AM" if hour < 12 else "PM"
+        display_hour = hour if hour <= 12 else hour - 12
+        if display_hour == 0:
+            display_hour = 12
+        return f"{display_hour}:{minute:02d} {period}"
 
     def check_supabase_enabled(self) -> bool:
         """Check if Supabase credentials are configured"""
@@ -814,8 +864,101 @@ class InteractiveStartup:
 
     def edit_operating_hours(self):
         """Edit operating hours"""
-        print(f"\n{Colors.YELLOW}⚠️  This feature will be implemented in future version{Colors.RESET}\n")
-        input("Press ENTER to continue...")
+        print("\n" + "=" * 72)
+        print(f"{Colors.BOLD}🕐 EDIT OPERATING HOURS{Colors.RESET}")
+        print("=" * 72 + "\n")
+
+        if not self.system_config:
+            print(f"{Colors.RED}❌ System config not loaded{Colors.RESET}\n")
+            return
+
+        print(f"{Colors.CYAN}Current Schedule:{Colors.RESET}\n")
+        print(f"  Capture:    {self.system_settings['capture_hours']}")
+        print(f"  Processing: {self.system_settings['processing_hours']}\n")
+
+        choice = self.prompt_menu(
+            "What would you like to edit?",
+            [
+                ("capture", "📹 Edit capture windows"),
+                ("processing", "🔄 Edit processing window"),
+                ("cancel", "❌ Cancel")
+            ],
+            show_header=False
+        )
+
+        if choice == "capture":
+            self.edit_capture_windows()
+        elif choice == "processing":
+            self.edit_processing_window()
+
+    def edit_capture_windows(self):
+        """Edit capture time windows"""
+        print(f"\n{Colors.BOLD}📹 Edit Capture Windows{Colors.RESET}\n")
+
+        for i, window in enumerate(self.system_config["capture_windows"]):
+            name = window.get("name", f"Window {i+1}")
+            print(f"\n{Colors.CYAN}{name.capitalize()}:{Colors.RESET}")
+            print(f"  Current: {self.format_time_12h(window['start_hour'], window['start_minute'])} - {self.format_time_12h(window['end_hour'], window['end_minute'])}")
+
+            if not self.confirm(f"Edit {name} window?"):
+                continue
+
+            # Start time
+            print(f"\n  Start time:")
+            start_hour = int(input(f"    Hour (0-23) [{window['start_hour']}]: ").strip() or window['start_hour'])
+            start_minute = int(input(f"    Minute (0-59) [{window['start_minute']}]: ").strip() or window['start_minute'])
+
+            # End time
+            print(f"\n  End time:")
+            end_hour = int(input(f"    Hour (0-23) [{window['end_hour']}]: ").strip() or window['end_hour'])
+            end_minute = int(input(f"    Minute (0-59) [{window['end_minute']}]: ").strip() or window['end_minute'])
+
+            # Update
+            window['start_hour'] = start_hour
+            window['start_minute'] = start_minute
+            window['end_hour'] = end_hour
+            window['end_minute'] = end_minute
+
+            print(f"\n  {Colors.GREEN}✅ Updated: {self.format_time_12h(start_hour, start_minute)} - {self.format_time_12h(end_hour, end_minute)}{Colors.RESET}")
+
+        # Save
+        self.save_system_config()
+        self.load_system_settings()  # Reload to update display
+        print(f"\n{Colors.GREEN}✅ Capture windows updated{Colors.RESET}\n")
+
+    def edit_processing_window(self):
+        """Edit processing window"""
+        print(f"\n{Colors.BOLD}🔄 Edit Processing Window{Colors.RESET}\n")
+
+        proc_win = self.system_config["processing_window"]
+        print(f"Current: {self.format_time_12h(proc_win['start_hour'], 0)} - {self.format_time_12h(proc_win['end_hour'], 0)}\n")
+
+        # Start hour
+        start_hour = int(input(f"Start hour (0-23) [{proc_win['start_hour']}]: ").strip() or proc_win['start_hour'])
+
+        # End hour
+        end_hour = int(input(f"End hour (0-23) [{proc_win['end_hour']}]: ").strip() or proc_win['end_hour'])
+
+        # Update
+        proc_win['start_hour'] = start_hour
+        proc_win['end_hour'] = end_hour
+
+        # Save
+        self.save_system_config()
+        self.load_system_settings()  # Reload to update display
+        print(f"\n{Colors.GREEN}✅ Processing window updated: {self.format_time_12h(start_hour, 0)} - {self.format_time_12h(end_hour, 0)}{Colors.RESET}\n")
+
+    def save_system_config(self):
+        """Save system configuration to JSON"""
+        system_config_file = CONFIG_DIR / "system_config.json"
+
+        # Update timestamp
+        self.system_config["last_updated"] = datetime.now().strftime("%Y-%m-%d")
+
+        with open(system_config_file, 'w') as f:
+            json.dump(self.system_config, f, indent=2)
+
+        print(f"{Colors.GREEN}✅ Configuration saved to {system_config_file.name}{Colors.RESET}")
 
     def toggle_features(self):
         """Toggle system features"""
@@ -1019,7 +1162,7 @@ class InteractiveStartup:
 
         print("The system is now configured and ready. Here's what will run:\n")
 
-        self.print_section("VIDEO CAPTURE - 11:00 AM to 9:00 PM", [
+        self.print_section(f"VIDEO CAPTURE - {self.system_settings['capture_hours']}", [
             f"• Capture from {len([c for c in self.cameras if c.get('enabled', True)])} cameras simultaneously",
             "• Save to: videos/YYYYMMDD/camera_XX/",
             "• Codec: H.265 (hardware accelerated)",
@@ -1027,7 +1170,7 @@ class InteractiveStartup:
             "• Segmented files: 5-minute chunks"
         ])
 
-        self.print_section("VIDEO PROCESSING - 11:00 PM to 6:00 AM", [
+        self.print_section(f"VIDEO PROCESSING - {self.system_settings['processing_hours']}", [
             "• Process all videos from today",
             "• Detection: Person → Staff Classification",
             "• Analysis: Table states + Region coverage",
