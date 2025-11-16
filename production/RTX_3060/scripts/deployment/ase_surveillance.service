@@ -1,14 +1,16 @@
 [Unit]
-Description=ASE Restaurant Surveillance Service
-Documentation=https://github.com/your-org/smartice
+Description=ASE Restaurant Surveillance Service v3.0.0
+Documentation=https://github.com/JeremyDong22/ASEOfSmartICE
 After=network.target
 
 [Service]
-Type=simple
+Type=forking
 User=smartahc
 Group=smartahc
 WorkingDirectory=/home/smartahc/smartice/ASEOfSmartICE/production/RTX_3060
-ExecStart=/usr/bin/python3 /home/smartahc/smartice/ASEOfSmartICE/production/RTX_3060/scripts/orchestration/surveillance_service.py start --foreground
+ExecStart=/home/smartahc/smartice/ASEOfSmartICE/production/RTX_3060/start.sh --daemon
+ExecStop=/home/smartahc/smartice/ASEOfSmartICE/production/RTX_3060/start.sh --stop
+PIDFile=/home/smartahc/smartice/ASEOfSmartICE/production/RTX_3060/surveillance_service.pid
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal
@@ -21,6 +23,9 @@ Environment="PYTHONUNBUFFERED=1"
 # Resource limits
 LimitNOFILE=65536
 Nice=-5
+
+# Logging
+SyslogIdentifier=ase_surveillance
 
 [Install]
 WantedBy=multi-user.target

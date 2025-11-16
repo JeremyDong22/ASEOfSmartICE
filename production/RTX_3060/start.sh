@@ -1,52 +1,57 @@
 #!/bin/bash
-# Modified: 2025-11-16 - Created robust startup wrapper script with daemon protection
+# Modified: 2025-11-16 - Ultimate entry point with crash protection and interactive wizard
+# Feature: Auto-restart protection, interactive configuration, systemd integration
 
-# ASE Restaurant Surveillance System - Robust Startup Script
-# Version: 2.0.0
+# ASE Restaurant Surveillance System - Ultimate Startup Script
+# Version: 3.0.0
 # Created: 2025-11-16
 #
 # Purpose:
-# - Robust startup wrapper for surveillance system
-# - Automatic crash recovery and restart
-# - Logging and monitoring
-# - Can run in background or foreground
+# - Ultimate entry point for all surveillance operations
+# - Interactive wizard for configuration and testing
+# - Auto-restart protection for production reliability
+# - Systemd service integration
 #
 # Usage:
-#   ./start.sh                # Start service (recommended)
-#   ./start.sh --foreground   # Run in foreground (debug mode)
-#   ./start.sh --status       # Check service status
-#   ./start.sh --stop         # Stop service
-#   ./start.sh --restart      # Restart service
-#   ./start.sh --logs         # View logs
+#   ./start.sh                    # Interactive mode (wizard + protection)
+#   ./start.sh --daemon           # Daemon mode (skip wizard, auto-restart)
+#   ./start.sh --status           # Check service status
+#   ./start.sh --stop             # Stop service
+#   ./start.sh --restart          # Restart service
+#   ./start.sh --logs             # View logs
+#   ./start.sh --install-systemd  # Install systemd service
 #
 # Features:
+# - Interactive configuration wizard
 # - Auto-restart on crash
-# - Logging to file and console
 # - PID file management
 # - Graceful shutdown handling
-# - Network/system check before start
+# - Comprehensive logging
 
-set -euo pipefail  # Exit on error, undefined variable, pipe failure
+set -euo pipefail
 
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Project paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$SCRIPT_DIR"
-PID_FILE="$PROJECT_ROOT/surveillance_wrapper.pid"  # Wrapper uses separate PID file
-SERVICE_PID_FILE="$PROJECT_ROOT/surveillance_service.pid"  # Python service PID
-LOG_FILE="$PROJECT_ROOT/logs/startup.log"
-PYTHON_SCRIPT="$PROJECT_ROOT/scripts/orchestration/surveillance_service.py"
+PID_FILE="$PROJECT_ROOT/surveillance_service.pid"
+LOG_DIR="$PROJECT_ROOT/logs"
+LOG_FILE="$LOG_DIR/startup.log"
+SERVICE_LOG="$LOG_DIR/surveillance_service.log"
+INTERACTIVE_SCRIPT="$PROJECT_ROOT/interactive_start.py"
+SERVICE_SCRIPT="$PROJECT_ROOT/scripts/orchestration/surveillance_service.py"
 
 # Ensure logs directory exists
-mkdir -p "$PROJECT_ROOT/logs"
+mkdir -p "$LOG_DIR"
 
-# Logging function
+# Logging functions
 log() {
     local level=$1
     shift
@@ -71,7 +76,7 @@ log_error() {
 print_banner() {
     echo ""
     echo "========================================================================"
-    echo "🎥 ASE Restaurant Surveillance System v2.0.0"
+    echo "🎥 ASE Restaurant Surveillance System v3.0.0"
     echo "========================================================================"
     echo "Project: $PROJECT_ROOT"
     echo "PID File: $PID_FILE"
@@ -102,7 +107,7 @@ get_status() {
         log_info "✅ Service is RUNNING (PID: $pid)"
 
         # Show process info
-        ps -p "$pid" -o pid,ppid,%cpu,%mem,etime,cmd --no-headers
+        ps -p "$pid" -o pid,ppid,%cpu,%mem,etime,cmd --no-headers 2>/dev/null || true
 
         return 0
     else
@@ -111,57 +116,7 @@ get_status() {
     fi
 }
 
-# Pre-flight checks
-preflight_checks() {
-    log_info "🔍 Running pre-flight checks..."
-
-    # Check Python
-    if ! command -v python3 &> /dev/null; then
-        log_error "❌ Python3 not found!"
-        exit 1
-    fi
-    log_info "✅ Python3: $(python3 --version)"
-
-    # Check database
-    if [ ! -f "$PROJECT_ROOT/db/detection_data.db" ]; then
-        log_warn "⚠️  Database not initialized"
-        log_info "Run: python3 scripts/deployment/initialize_restaurant.py"
-        read -p "Continue anyway? (y/n): " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            exit 1
-        fi
-    else
-        log_info "✅ Database exists"
-    fi
-
-    # Check models
-    if [ ! -f "$PROJECT_ROOT/models/yolov8m.pt" ]; then
-        log_error "❌ YOLO model not found!"
-        exit 1
-    fi
-    log_info "✅ Models present"
-
-    # Check disk space
-    local free_space=$(df "$PROJECT_ROOT" | awk 'NR==2 {print $4}')
-    local free_gb=$((free_space / 1024 / 1024))
-    log_info "💾 Free disk space: ${free_gb}GB"
-
-    if [ $free_gb -lt 50 ]; then
-        log_warn "⚠️  Low disk space! (< 50GB)"
-    fi
-
-    # Check network
-    if ping -c 1 -W 2 8.8.8.8 &> /dev/null; then
-        log_info "✅ Network connectivity OK"
-    else
-        log_warn "⚠️  No internet connectivity"
-    fi
-
-    log_info "✅ Pre-flight checks complete"
-}
-
-# Start service
+# Start service with crash protection
 start_service() {
     print_banner
 
@@ -172,34 +127,144 @@ start_service() {
         exit 1
     fi
 
-    log_info "🚀 Launching interactive startup wizard..."
+    log_info "🚀 Starting ASE Surveillance System..."
     log_info ""
 
-    # Run interactive startup wizard
-    if [ "$FOREGROUND" = true ]; then
-        # Foreground mode - run wizard interactively
-        python3 "$PROJECT_ROOT/interactive_start.py"
+    # Determine mode
+    local skip_wizard=false
+    if [ "${DAEMON_MODE:-false}" = "true" ]; then
+        skip_wizard=true
+        log_info "🤖 Daemon mode: Skipping interactive wizard"
     else
-        # Background mode - run wizard with auto-accept
-        python3 "$PROJECT_ROOT/interactive_start.py"
+        log_info "🎨 Interactive mode: Running configuration wizard"
     fi
 
-    # Check if service started successfully
-    sleep 2
+    # Run interactive wizard (unless daemon mode)
+    if [ "$skip_wizard" = "false" ]; then
+        log_info ""
+        log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        log_info "📋 INTERACTIVE CONFIGURATION WIZARD"
+        log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        log_info ""
 
-    if [ -f "$SERVICE_PID_FILE" ]; then
-        local service_pid=$(cat "$SERVICE_PID_FILE")
+        # Run wizard
+        if python3 "$INTERACTIVE_SCRIPT"; then
+            log_info ""
+            log_info "✅ Interactive wizard completed successfully"
+            log_info ""
+        else
+            local exit_code=$?
+            if [ $exit_code -ne 0 ]; then
+                log_error "❌ Interactive wizard failed or was cancelled"
+                exit $exit_code
+            fi
+        fi
+    fi
+
+    # Check if service is already running (wizard might have started it)
+    if is_running; then
+        log_info "✅ Service already started by wizard"
+        get_status
+        return 0
+    fi
+
+    # Start service with crash protection
+    log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    log_info "🛡️  STARTING SERVICE WITH AUTO-RESTART PROTECTION"
+    log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    log_info ""
+
+    if [ "${FOREGROUND:-false}" = "true" ]; then
+        # Foreground mode (for debugging)
+        log_info "Running in foreground mode (Ctrl+C to stop)"
         log_info ""
-        log_info "✅ Service started successfully!"
-        log_info "PID: $service_pid"
-        log_info ""
-        log_info "Management commands:"
-        log_info "  ./start.sh --status    # Check status"
-        log_info "  ./start.sh --stop      # Stop service"
-        log_info "  ./start.sh --logs      # View logs"
+
+        # Direct execution with auto-restart
+        while true; do
+            log_info "Starting surveillance service..."
+            python3 "$SERVICE_SCRIPT" start --foreground
+            exit_code=$?
+
+            if [ $exit_code -eq 0 ]; then
+                log_info "Clean exit (exit code 0), stopping auto-restart"
+                break
+            fi
+
+            log_warn "⚠️  Service crashed (exit code $exit_code), restarting in 10 seconds..."
+            sleep 10
+        done
     else
-        log_warn "⚠️  Wizard exited. Service may not have started."
-        log_info "Run './start.sh --status' to check service status"
+        # Background mode with auto-restart protection
+        log_info "Starting in background mode with auto-restart..."
+        log_info ""
+
+        # Launch auto-restart daemon
+        nohup bash -c '
+            PID_FILE="'"$PID_FILE"'"
+            LOG_FILE="'"$LOG_FILE"'"
+            SERVICE_SCRIPT="'"$SERVICE_SCRIPT"'"
+
+            # Write our own PID
+            echo $$ > "$PID_FILE"
+
+            while true; do
+                echo "[$(date "+%Y-%m-%d %H:%M:%S")] Starting surveillance service..." >> "$LOG_FILE"
+
+                python3 "$SERVICE_SCRIPT" start
+                exit_code=$?
+
+                echo "[$(date "+%Y-%m-%d %H:%M:%S")] Service exited with code: $exit_code" >> "$LOG_FILE"
+
+                # Check if clean exit
+                if [ $exit_code -eq 0 ]; then
+                    echo "[$(date "+%Y-%m-%d %H:%M:%S")] Clean exit, stopping auto-restart" >> "$LOG_FILE"
+                    rm -f "$PID_FILE"
+                    break
+                fi
+
+                # Check if manually stopped
+                if [ ! -f "$PID_FILE" ]; then
+                    echo "[$(date "+%Y-%m-%d %H:%M:%S")] PID file removed, stopping auto-restart" >> "$LOG_FILE"
+                    break
+                fi
+
+                echo "[$(date "+%Y-%m-%d %H:%M:%S")] ⚠️  Crash detected! Restarting in 10 seconds..." >> "$LOG_FILE"
+                sleep 10
+            done
+        ' >> "$LOG_FILE" 2>&1 &
+
+        local wrapper_pid=$!
+
+        # Wait for service to start
+        sleep 3
+
+        # Verify it started
+        if is_running; then
+            local pid=$(cat "$PID_FILE")
+            log_info ""
+            log_info "✅ Service started successfully!"
+            log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            log_info "PID: $pid (auto-restart wrapper)"
+            log_info ""
+            log_info "Management commands:"
+            log_info "  ./start.sh --status     # Check service status"
+            log_info "  ./start.sh --stop       # Stop service"
+            log_info "  ./start.sh --restart    # Restart service"
+            log_info "  ./start.sh --logs       # View logs"
+            log_info ""
+            log_info "Log files:"
+            log_info "  Startup:    $LOG_FILE"
+            log_info "  Service:    $SERVICE_LOG"
+            log_info ""
+            log_info "Real-time monitoring:"
+            log_info "  tail -f $SERVICE_LOG"
+            log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            log_info ""
+        else
+            log_error "❌ Failed to start service!"
+            log_error "Check logs: $LOG_FILE"
+            exit 1
+        fi
     fi
 }
 
@@ -212,42 +277,19 @@ stop_service() {
         return 0
     fi
 
-    # First, stop the Python service using its stop command
-    if [ -f "$SERVICE_PID_FILE" ]; then
-        local service_pid=$(cat "$SERVICE_PID_FILE")
-        log_info "🛑 Stopping Python service (PID: $service_pid)..."
+    local pid=$(cat "$PID_FILE")
+    log_info "🛑 Stopping service (PID: $pid)..."
 
-        # Send SIGTERM to Python service
-        kill -TERM "$service_pid" 2>/dev/null || true
+    # Remove PID file first (stops auto-restart loop)
+    rm -f "$PID_FILE"
 
-        # Wait up to 15 seconds for Python service to stop
-        local count=0
-        while [ $count -lt 15 ]; do
-            if ! ps -p "$service_pid" > /dev/null 2>&1; then
-                break
-            fi
-            sleep 1
-            count=$((count + 1))
-        done
+    # Try graceful shutdown
+    kill -TERM "$pid" 2>/dev/null || true
 
-        # Force kill if still running
-        if ps -p "$service_pid" > /dev/null 2>&1; then
-            log_warn "⚠️  Python service didn't stop gracefully, force killing..."
-            kill -9 "$service_pid" 2>/dev/null || true
-        fi
-    fi
-
-    # Now stop the wrapper
-    local wrapper_pid=$(cat "$PID_FILE")
-    log_info "🛑 Stopping wrapper (PID: $wrapper_pid)..."
-
-    # Try graceful shutdown first
-    kill -TERM "$wrapper_pid" 2>/dev/null || true
-
-    # Wait up to 15 seconds for graceful shutdown
+    # Wait up to 30 seconds for graceful shutdown
     local count=0
-    while [ $count -lt 15 ]; do
-        if ! ps -p "$wrapper_pid" > /dev/null 2>&1; then
+    while [ $count -lt 30 ]; do
+        if ! ps -p "$pid" > /dev/null 2>&1; then
             break
         fi
         sleep 1
@@ -255,15 +297,11 @@ stop_service() {
     done
 
     # Force kill if still running
-    if ps -p "$wrapper_pid" > /dev/null 2>&1; then
-        log_warn "⚠️  Wrapper didn't stop gracefully, force killing..."
-        kill -9 "$wrapper_pid" 2>/dev/null || true
+    if ps -p "$pid" > /dev/null 2>&1; then
+        log_warn "⚠️  Graceful shutdown failed, force killing..."
+        kill -9 "$pid" 2>/dev/null || true
         sleep 1
     fi
-
-    # Clean up PID files
-    rm -f "$PID_FILE"
-    rm -f "$SERVICE_PID_FILE"
 
     # Kill any remaining child processes
     pkill -f "surveillance_service.py" 2>/dev/null || true
@@ -282,27 +320,66 @@ restart_service() {
 
 # View logs
 view_logs() {
-    if [ -f "$LOG_FILE" ]; then
+    if [ -f "$SERVICE_LOG" ]; then
         echo "========================================"
-        echo "📋 Recent Logs (last 50 lines)"
+        echo "📋 Service Logs (last 50 lines)"
         echo "========================================"
-        tail -n 50 "$LOG_FILE"
+        tail -n 50 "$SERVICE_LOG"
         echo ""
         echo "========================================"
         echo "Follow logs in real-time:"
-        echo "  tail -f $LOG_FILE"
+        echo "  tail -f $SERVICE_LOG"
         echo "========================================"
     else
-        log_warn "No logs found at $LOG_FILE"
+        log_warn "No service logs found at $SERVICE_LOG"
     fi
+}
+
+# Install systemd service
+install_systemd() {
+    print_banner
+
+    log_info "📦 Installing systemd service..."
+    log_info ""
+
+    local systemd_installer="$PROJECT_ROOT/scripts/deployment/install_service.sh"
+
+    if [ ! -f "$systemd_installer" ]; then
+        log_error "❌ Systemd installer not found: $systemd_installer"
+        exit 1
+    fi
+
+    # Run installer
+    sudo bash "$systemd_installer"
+
+    log_info ""
+    log_info "✅ Systemd service installed successfully!"
+    log_info ""
+    log_info "Service management commands:"
+    log_info "  sudo systemctl start ase_surveillance      # Start service"
+    log_info "  sudo systemctl stop ase_surveillance       # Stop service"
+    log_info "  sudo systemctl restart ase_surveillance    # Restart service"
+    log_info "  sudo systemctl status ase_surveillance     # Check status"
+    log_info "  sudo systemctl enable ase_surveillance     # Auto-start on boot"
+    log_info "  sudo systemctl disable ase_surveillance    # Disable auto-start"
+    log_info ""
+    log_info "View logs:"
+    log_info "  sudo journalctl -u ase_surveillance -f"
+    log_info ""
 }
 
 # Main script logic
 COMMAND="${1:-start}"
+DAEMON_MODE=false
 FOREGROUND=false
 
+# Parse arguments
 case "$COMMAND" in
     start|--start)
+        start_service
+        ;;
+    --daemon|-d)
+        DAEMON_MODE=true
         start_service
         ;;
     --foreground|-f)
@@ -322,16 +399,30 @@ case "$COMMAND" in
     logs|--logs)
         view_logs
         ;;
+    --install-systemd)
+        install_systemd
+        ;;
     *)
-        echo "Usage: $0 {start|--foreground|stop|restart|status|logs}"
+        echo "ASE Restaurant Surveillance System v3.0.0"
+        echo ""
+        echo "Usage: $0 {COMMAND} [OPTIONS]"
         echo ""
         echo "Commands:"
-        echo "  start, --start      Start service in background"
-        echo "  --foreground, -f    Run in foreground (debug mode)"
-        echo "  stop, --stop        Stop service"
-        echo "  restart, --restart  Restart service"
-        echo "  status, --status    Check service status"
-        echo "  logs, --logs        View recent logs"
+        echo "  start, --start           Start service (interactive mode)"
+        echo "  --daemon, -d             Start in daemon mode (skip wizard)"
+        echo "  --foreground, -f         Run in foreground (debug mode)"
+        echo "  stop, --stop             Stop service"
+        echo "  restart, --restart       Restart service"
+        echo "  status, --status         Check service status"
+        echo "  logs, --logs             View recent logs"
+        echo "  --install-systemd        Install systemd service"
+        echo ""
+        echo "Examples:"
+        echo "  $0                       # Interactive start (wizard + protection)"
+        echo "  $0 --daemon              # Daemon start (no wizard, auto-restart)"
+        echo "  $0 --status              # Check if running"
+        echo "  $0 --install-systemd     # Install OS-level service"
+        echo ""
         exit 1
         ;;
 esac
