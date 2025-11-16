@@ -38,7 +38,8 @@ NC='\033[0m' # No Color
 # Project paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$SCRIPT_DIR"
-PID_FILE="$PROJECT_ROOT/surveillance_service.pid"
+PID_FILE="$PROJECT_ROOT/surveillance_wrapper.pid"  # Wrapper uses separate PID file
+SERVICE_PID_FILE="$PROJECT_ROOT/surveillance_service.pid"  # Python service PID
 LOG_FILE="$PROJECT_ROOT/logs/startup.log"
 PYTHON_SCRIPT="$PROJECT_ROOT/scripts/orchestration/surveillance_service.py"
 
@@ -171,57 +172,34 @@ start_service() {
         exit 1
     fi
 
-    # Run pre-flight checks
-    preflight_checks
+    log_info "🚀 Launching interactive startup wizard..."
+    log_info ""
 
-    log_info "🚀 Starting surveillance service..."
-
-    # Start Python service
+    # Run interactive startup wizard
     if [ "$FOREGROUND" = true ]; then
-        # Foreground mode (for debugging)
-        log_info "Running in foreground mode (Ctrl+C to stop)"
-        python3 "$PYTHON_SCRIPT" start --foreground
+        # Foreground mode - run wizard interactively
+        python3 "$PROJECT_ROOT/interactive_start.py"
     else
-        # Background mode with auto-restart
-        log_info "Starting in background mode..."
+        # Background mode - run wizard with auto-accept
+        python3 "$PROJECT_ROOT/interactive_start.py"
+    fi
 
-        # Start service in background
-        nohup bash -c "
-            while true; do
-                echo \"[\$(date '+%Y-%m-%d %H:%M:%S')] Starting surveillance service...\" >> \"$LOG_FILE\"
-                python3 \"$PYTHON_SCRIPT\" start
-                exit_code=\$?
-                echo \"[\$(date '+%Y-%m-%d %H:%M:%S')] Service exited with code: \$exit_code\" >> \"$LOG_FILE\"
+    # Check if service started successfully
+    sleep 2
 
-                if [ \$exit_code -eq 0 ]; then
-                    echo \"[\$(date '+%Y-%m-%d %H:%M:%S')] Clean exit, not restarting\" >> \"$LOG_FILE\"
-                    break
-                fi
-
-                echo \"[\$(date '+%Y-%m-%d %H:%M:%S')] Unexpected exit! Restarting in 10 seconds...\" >> \"$LOG_FILE\"
-                sleep 10
-            done
-        " > "$LOG_FILE.daemon" 2>&1 &
-
-        local daemon_pid=$!
-        echo $daemon_pid > "$PID_FILE"
-
-        # Wait a moment and check if it started
-        sleep 2
-
-        if is_running; then
-            log_info "✅ Service started successfully!"
-            log_info "PID: $daemon_pid"
-            log_info ""
-            log_info "Management commands:"
-            log_info "  ./start.sh --status    # Check status"
-            log_info "  ./start.sh --stop      # Stop service"
-            log_info "  ./start.sh --logs      # View logs"
-        else
-            log_error "❌ Failed to start service!"
-            log_error "Check logs: $LOG_FILE"
-            exit 1
-        fi
+    if [ -f "$SERVICE_PID_FILE" ]; then
+        local service_pid=$(cat "$SERVICE_PID_FILE")
+        log_info ""
+        log_info "✅ Service started successfully!"
+        log_info "PID: $service_pid"
+        log_info ""
+        log_info "Management commands:"
+        log_info "  ./start.sh --status    # Check status"
+        log_info "  ./start.sh --stop      # Stop service"
+        log_info "  ./start.sh --logs      # View logs"
+    else
+        log_warn "⚠️  Wizard exited. Service may not have started."
+        log_info "Run './start.sh --status' to check service status"
     fi
 }
 
@@ -234,16 +212,42 @@ stop_service() {
         return 0
     fi
 
-    local pid=$(cat "$PID_FILE")
-    log_info "🛑 Stopping service (PID: $pid)..."
+    # First, stop the Python service using its stop command
+    if [ -f "$SERVICE_PID_FILE" ]; then
+        local service_pid=$(cat "$SERVICE_PID_FILE")
+        log_info "🛑 Stopping Python service (PID: $service_pid)..."
+
+        # Send SIGTERM to Python service
+        kill -TERM "$service_pid" 2>/dev/null || true
+
+        # Wait up to 15 seconds for Python service to stop
+        local count=0
+        while [ $count -lt 15 ]; do
+            if ! ps -p "$service_pid" > /dev/null 2>&1; then
+                break
+            fi
+            sleep 1
+            count=$((count + 1))
+        done
+
+        # Force kill if still running
+        if ps -p "$service_pid" > /dev/null 2>&1; then
+            log_warn "⚠️  Python service didn't stop gracefully, force killing..."
+            kill -9 "$service_pid" 2>/dev/null || true
+        fi
+    fi
+
+    # Now stop the wrapper
+    local wrapper_pid=$(cat "$PID_FILE")
+    log_info "🛑 Stopping wrapper (PID: $wrapper_pid)..."
 
     # Try graceful shutdown first
-    kill -TERM "$pid" 2>/dev/null || true
+    kill -TERM "$wrapper_pid" 2>/dev/null || true
 
-    # Wait up to 30 seconds for graceful shutdown
+    # Wait up to 15 seconds for graceful shutdown
     local count=0
-    while [ $count -lt 30 ]; do
-        if ! ps -p "$pid" > /dev/null 2>&1; then
+    while [ $count -lt 15 ]; do
+        if ! ps -p "$wrapper_pid" > /dev/null 2>&1; then
             break
         fi
         sleep 1
@@ -251,16 +255,17 @@ stop_service() {
     done
 
     # Force kill if still running
-    if ps -p "$pid" > /dev/null 2>&1; then
-        log_warn "⚠️  Graceful shutdown failed, force killing..."
-        kill -9 "$pid" 2>/dev/null || true
+    if ps -p "$wrapper_pid" > /dev/null 2>&1; then
+        log_warn "⚠️  Wrapper didn't stop gracefully, force killing..."
+        kill -9 "$wrapper_pid" 2>/dev/null || true
         sleep 1
     fi
 
-    # Clean up PID file
+    # Clean up PID files
     rm -f "$PID_FILE"
+    rm -f "$SERVICE_PID_FILE"
 
-    # Kill any child processes
+    # Kill any remaining child processes
     pkill -f "surveillance_service.py" 2>/dev/null || true
     pkill -f "capture_rtsp_streams.py" 2>/dev/null || true
 
