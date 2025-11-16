@@ -51,9 +51,10 @@ The `train-model/linux_rtx_screenshot_capture/` folder contains automation for t
 
 ## Camera Configuration
 
-- **8 Working Cameras**: Various resolutions (640x360 to 2592x1944)
+- **10 RTSP Cameras**: Various resolutions (640x360 to 2592x1944)
 - **Sub-stream Protocol**: Always uses `/102` endpoints for stability
 - **RTSP Connections**: Direct streaming via `rtsp://` protocol
+- **Production Deployment**: 10 cameras at Ye Bai Ling Hotpot (Mianyang, 1958 District)
 
 ## Common Commands
 

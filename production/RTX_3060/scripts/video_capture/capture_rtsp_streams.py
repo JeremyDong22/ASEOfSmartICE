@@ -56,31 +56,9 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 VIDEOS_DIR = SCRIPT_DIR.parent.parent / "videos"
 CAMERAS_CONFIG = SCRIPT_DIR.parent / "config" / "cameras_config.json"
 
-# Default camera configurations
-DEFAULT_CAMERAS = {
-    "camera_35": {
-        "ip": "202.168.40.35",
-        "port": 554,
-        "username": "admin",
-        "password": "123456",
-        "stream_path": "/media/video1",  # UNV main stream
-        "resolution": (2592, 1944),
-        "fps": 20,
-        "division_name": "A区",
-        "enabled": True
-    },
-    "camera_22": {
-        "ip": "202.168.40.22",
-        "port": 554,
-        "username": "admin",
-        "password": "123456",
-        "stream_path": "/media/video1",
-        "resolution": (2592, 1944),
-        "fps": 20,
-        "division_name": "B区",
-        "enabled": True
-    }
-}
+# Camera configurations loaded from JSON file
+# All camera settings must be defined in scripts/config/cameras_config.json
+# No hardcoded defaults - production systems must use proper configuration files
 
 # ============================================================================
 # NETWORK RECONNECTION SETTINGS (UPDATED in v3.0.0)
@@ -754,22 +732,39 @@ class CameraCapture:
 # ============================================================================
 
 def load_cameras_config():
-    """Load cameras configuration from JSON file or use defaults"""
-    if CAMERAS_CONFIG.exists():
-        print(f"📂 Loading camera config from: {CAMERAS_CONFIG}")
+    """
+    Load cameras configuration from JSON file
+
+    Raises:
+        FileNotFoundError: If cameras_config.json does not exist
+        json.JSONDecodeError: If config file has invalid JSON
+    """
+    if not CAMERAS_CONFIG.exists():
+        raise FileNotFoundError(
+            f"❌ Camera configuration file not found: {CAMERAS_CONFIG}\n"
+            f"   Please create the configuration file using:\n"
+            f"   - python3 scripts/deployment/initialize_restaurant.py (first-time setup)\n"
+            f"   - python3 scripts/deployment/manage_cameras.py (add/edit cameras)"
+        )
+
+    print(f"📂 Loading camera config from: {CAMERAS_CONFIG}")
+    try:
         with open(CAMERAS_CONFIG, 'r') as f:
-            return json.load(f)
-    else:
-        print("📂 Using default camera configuration")
-        print(f"   (Create {CAMERAS_CONFIG} to customize)")
-        return DEFAULT_CAMERAS
+            cameras = json.load(f)
 
+        if not cameras:
+            raise ValueError("❌ Camera configuration is empty")
 
-def save_default_config():
-    """Save default camera configuration to JSON file"""
-    with open(CAMERAS_CONFIG, 'w') as f:
-        json.dump(DEFAULT_CAMERAS, f, indent=2)
-    print(f"✅ Default config saved to: {CAMERAS_CONFIG}")
+        print(f"✅ Loaded {len(cameras)} camera(s)")
+        return cameras
+
+    except json.JSONDecodeError as e:
+        raise json.JSONDecodeError(
+            f"❌ Invalid JSON in camera configuration file: {CAMERAS_CONFIG}\n"
+            f"   Error: {str(e)}",
+            e.doc,
+            e.pos
+        )
 
 
 def capture_all_cameras(duration_seconds, output_dir, camera_filter=None):

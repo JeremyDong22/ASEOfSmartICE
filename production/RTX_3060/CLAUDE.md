@@ -98,8 +98,11 @@ python3 scripts/deployment/manage_cameras.py
 **Restaurant:** 野百灵火锅店 (Ye Bai Ling Hotpot)
 **Hardware:** NVIDIA RTX 3060 Linux machine deployed on-site
 **Cameras:** 10 RTSP cameras covering restaurant floor
-**Operating Hours:** 11 AM - 9 PM (10 hours daily)
-**Processing Window:** 11 PM - 6 AM (overnight batch processing)
+**Operating Hours (Dual Windows):**
+- Morning: 11:30 AM - 2:00 PM (2.5 hours)
+- Evening: 5:00 PM - 10:00 PM (5 hours)
+- Total: 7.5 hours daily capture
+**Processing Window:** 12:00 AM - 11:00 PM (all day, target completion by 11 PM)
 
 ## System Architecture
 
@@ -315,14 +318,14 @@ Four critical optimizations implemented for production RTX 3060 deployment:
 **Solution:** Predictive monitoring with usage speed calculation
 - **Measure speed:** Observe disk usage for 30 seconds
 - **Calculate rate:** GB/hour during recording window
-- **Query recording:** Remaining hours until 9 PM
+- **Query recording:** Remaining hours until end of capture window (2 PM or 10 PM)
 - **Predict need:** Rate × Remaining hours + 20% safety margin
 - **Proactive cleanup:** Free space BEFORE shortage occurs
 - **Hourly checks:** Changed from 2-hour to 1-hour cron interval
 
 **Key Features:**
 - Detects active recording processes (`capture_rtsp_streams`)
-- Only measures speed during recording hours (11 AM - 9 PM)
+- Only measures speed during recording hours (11:30 AM - 2 PM, 5 PM - 10 PM)
 - Three-tier status: SAFE (margin) / TIGHT (sufficient) / CRITICAL (shortage)
 - Automatic proactive cleanup based on predictions
 
@@ -494,9 +497,10 @@ GREEN (Serving):    walking_waiters>0 (staff in walking area)
 - Capacity: 100 hours in 17.1 hours (dual-threaded)
 
 **Production Workload:**
-- 10 cameras × 10 hours = 100 hours daily footage
-- Overnight processing: 11 PM - 6 AM (7 hours available)
-- Current performance: Completes in 17.1 hours (needs optimization or dual-threaded)
+- 10 cameras × 7.5 hours = 75 hours daily footage (2.5h morning + 5h evening per camera)
+- Processing window: 12:00 AM - 11:00 PM (23 hours available)
+- Current performance: Completes in 17.1 hours (fits within processing window)
+- Target completion: 11:00 PM (before next day's 11:30 AM capture)
 
 ## Database Schema
 
