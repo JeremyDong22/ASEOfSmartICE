@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
 """
 ASE Restaurant Surveillance Service - Automated Daemon
-Version: 2.0.0
+Version: 2.1.0
 Created: 2025-11-16
+Modified: 2025-11-17 - v2.1.0: Fixed capture window end detection bug
+  - Changed window end detection from exact minute match to continuous range check
+  - Prevents recording from continuing past window end time
+  - Added window mismatch detection and graceful handling
+  - Improved logging for window transitions
+
 Modified: 2025-11-16 - v2.0.0: Multiple capture windows and midnight processing
 
 Purpose:
@@ -98,7 +104,7 @@ HEALTH_CHECK_INTERVAL = _config["monitoring_intervals"]["health_check_seconds"]
 class SurveillanceService:
     """
     Automated surveillance service daemon
-    Version: 2.0.0
+    Version: 2.1.0
     """
 
     def __init__(self, foreground=False):
@@ -223,7 +229,11 @@ class SurveillanceService:
                     stderr=subprocess.PIPE
                 )
                 self.current_capture_window = window  # Track active window
-                self.logger.info(f"Video capture started (PID: {self.capture_process.pid}, {window_name} window, duration: {duration}s)")
+                self.logger.info(f"Video capture started (PID: {self.capture_process.pid}, {window_name} window)")
+                self.logger.info(f"  Window: {window['start_hour']:02d}:{window['start_minute']:02d} - {window['end_hour']:02d}:{window['end_minute']:02d}")
+                self.logger.info(f"  Start time: {now.strftime('%H:%M:%S')}")
+                self.logger.info(f"  End time: {end_time.strftime('%H:%M:%S')}")
+                self.logger.info(f"  Duration: {duration}s ({duration/60:.1f} minutes)")
             except Exception as e:
                 self.logger.error(f"Failed to start video capture: {e}")
 
@@ -372,24 +382,37 @@ class SurveillanceService:
                 current_hour = now.hour
                 current_minute = now.minute
 
-                # Check each capture window
+                # Check if capture process should be stopped (check BEFORE starting new capture)
+                if self.capture_process and self.capture_process.poll() is None:
+                    # Check if we're outside ALL capture windows
+                    in_window, active_window = self.is_in_capture_window()
+
+                    if not in_window:
+                        # We're outside capture windows but process is still running
+                        # Determine which window just ended
+                        window_name = "morning" if self.current_capture_window and self.current_capture_window["start_hour"] == 11 else "evening"
+                        self.logger.info(f"Outside capture window - {window_name} window ended, stopping capture...")
+                        self.capture_process.terminate()
+                        self.current_capture_window = None
+                    elif active_window != self.current_capture_window:
+                        # We're in a different window than what's currently capturing
+                        # This shouldn't happen, but handle it gracefully
+                        old_window_name = "morning" if self.current_capture_window and self.current_capture_window["start_hour"] == 11 else "evening"
+                        new_window_name = "morning" if active_window["start_hour"] == 11 else "evening"
+                        self.logger.warning(f"Window mismatch detected - stopping {old_window_name} capture for {new_window_name} window...")
+                        self.capture_process.terminate()
+                        self.current_capture_window = None
+                        time.sleep(2)  # Brief pause before starting new capture
+
+                # Check each capture window for START time
                 for window in CAPTURE_WINDOWS:
                     start_hour = window["start_hour"]
                     start_minute = window["start_minute"]
-                    end_hour = window["end_hour"]
-                    end_minute = window["end_minute"]
 
-                    # Check if we should start this capture window
+                    # Check if we should start this capture window (exact minute match)
                     if current_hour == start_hour and current_minute == start_minute:
                         self.start_video_capture()
-
-                    # Check if this capture window ended
-                    if current_hour == end_hour and current_minute == end_minute:
-                        if self.capture_process and self.capture_process.poll() is None:
-                            window_name = "morning" if start_hour == 11 else "evening"
-                            self.logger.info(f"{window_name.capitalize()} capture window ended, stopping capture...")
-                            self.capture_process.terminate()
-                            self.current_capture_window = None
+                        break  # Only start one window per iteration
 
                 # Check if we should start video processing (midnight)
                 if current_hour == PROCESS_START_HOUR and current_minute == 0:
@@ -429,7 +452,7 @@ class SurveillanceService:
 
         self.running = True
         self.logger.info("=" * 70)
-        self.logger.info("ASE Surveillance Service Starting v2.0.0")
+        self.logger.info("ASE Surveillance Service Starting v2.1.0")
         self.logger.info("=" * 70)
         self.logger.info("Capture windows (dual schedule):")
         for i, window in enumerate(CAPTURE_WINDOWS, 1):
