@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 """
 RTSP Video Capture Script for Multi-Camera Restaurant Monitoring
-Version: 3.1.0
-Last Updated: 2025-11-17
+Version: 3.1.1
+Last Updated: 2025-11-19
+Modified: Fixed graceful shutdown bug - removed sys.exit(0) from signal handler - 2025-11-19
+  - Allows finally blocks to execute properly for VideoWriter.release()
+  - Prevents video corruption on SIGTERM
+  - Process now exits naturally after cleanup completes
+
 Modified: Added 10-minute periodic checkpoint mechanism to prevent video corruption - 2025-11-17
 
 Purpose: Capture video streams from multiple UNV cameras via RTSP with robust reconnection
@@ -787,6 +792,8 @@ def signal_handler(sig, frame):
     """
     Handle SIGTERM and SIGINT for graceful shutdown.
     Ensures video files are properly closed to prevent corruption.
+
+    Modified: 2025-11-19 - Removed sys.exit(0) to allow finally blocks to execute
     """
     signal_name = "SIGTERM" if sig == signal.SIGTERM else "SIGINT"
     print(f"\n⚠️  Received {signal_name}, initiating graceful shutdown...")
@@ -799,8 +806,9 @@ def signal_handler(sig, frame):
         except Exception as e:
             print(f"[{capture.camera_id}] Error stopping capture: {e}")
 
-    print("✅ Graceful shutdown complete")
-    sys.exit(0)
+    print("✅ Graceful shutdown initiated (waiting for cleanup...)")
+    # NOTE: Removed sys.exit(0) to allow finally blocks to execute properly
+    # The capture loop will exit naturally when is_capturing becomes False
 
 
 # Register signal handlers

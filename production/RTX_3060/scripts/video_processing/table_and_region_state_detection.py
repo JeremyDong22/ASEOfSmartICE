@@ -1436,8 +1436,11 @@ def process_video(video_path, person_detector, staff_classifier, config, output_
     output_filename = f"{script_name}_{Path(video_path).stem}.mp4"
     output_file = str(output_path / output_filename)
 
-    # Use H.264 codec for better compression (hardware accelerated on RTX 3060)
-    fourcc = cv2.VideoWriter_fourcc(*'avc1')  # H.264 codec
+    # Modified: 2025-11-19 - Fixed H.264 encoder unavailability
+    # Changed from 'avc1' (H.264) to 'mp4v' (MPEG-4 Part 2)
+    # Reason: OpenCV FFmpeg build missing H.264 encoder (codec_id=27)
+    # MPEG-4 provides good compression (better than MJPEG) and universal compatibility
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # MPEG-4 Part 2 codec
     out = cv2.VideoWriter(output_file, fourcc, fps, (width, height))
 
     if not out.isOpened():

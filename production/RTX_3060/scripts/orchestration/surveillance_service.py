@@ -1,8 +1,16 @@
 #!/usr/bin/env python3
 """
 ASE Restaurant Surveillance Service - Automated Daemon
-Version: 2.1.0
+Version: 2.2.0
 Created: 2025-11-16
+Modified: 2025-11-19 - v2.2.0: Fixed critical bug - capture process refusing to terminate
+  - Added graceful shutdown with timeout mechanism (10s wait for SIGTERM)
+  - Implemented SIGKILL fallback if SIGTERM fails
+  - New _stop_capture_process() method with detailed logging
+  - Fixed scheduler_loop() to use new termination method
+  - Fixed stop() method to use new termination method
+  - Process now guaranteed to stop within 15 seconds (10s SIGTERM + 5s SIGKILL)
+
 Modified: 2025-11-17 - v2.1.0: Fixed capture window end detection bug
   - Changed window end detection from exact minute match to continuous range check
   - Prevents recording from continuing past window end time
@@ -104,7 +112,7 @@ HEALTH_CHECK_INTERVAL = _config["monitoring_intervals"]["health_check_seconds"]
 class SurveillanceService:
     """
     Automated surveillance service daemon
-    Version: 2.1.0
+    Version: 2.2.0
     """
 
     def __init__(self, foreground=False):
@@ -187,6 +195,67 @@ class SurveillanceService:
                 return (True, window)
 
         return (False, None)
+
+    def _stop_capture_process(self, process_name="capture", timeout=10):
+        """
+        Stop capture process with graceful shutdown and kill fallback
+        Added: 2025-11-19 - Fix for capture process refusing to terminate
+
+        Args:
+            process_name: Name for logging (e.g., "morning", "evening")
+            timeout: Seconds to wait for graceful shutdown before kill (default: 10)
+
+        Returns:
+            bool: True if stopped successfully, False otherwise
+        """
+        if not self.capture_process or self.capture_process.poll() is not None:
+            self.logger.warning(f"Capture process already stopped or not running")
+            return True
+
+        pid = self.capture_process.pid
+        self.logger.info(f"Stopping {process_name} capture process (PID: {pid})...")
+
+        # Step 1: Send SIGTERM (graceful shutdown)
+        try:
+            self.logger.info(f"  [1/3] Sending SIGTERM to PID {pid}...")
+            self.capture_process.terminate()
+
+            # Wait for process to exit gracefully
+            self.logger.info(f"  [2/3] Waiting {timeout}s for graceful shutdown...")
+            try:
+                self.capture_process.wait(timeout=timeout)
+                self.logger.info(f"  ✅ Process {pid} stopped gracefully via SIGTERM")
+                return True
+            except subprocess.TimeoutExpired:
+                # Process didn't exit in time
+                self.logger.warning(f"  ⚠️  Process {pid} did not respond to SIGTERM after {timeout}s")
+
+        except Exception as e:
+            self.logger.error(f"  ❌ Error sending SIGTERM to PID {pid}: {e}")
+
+        # Step 2: Force kill with SIGKILL
+        try:
+            # Check if still running
+            if self.capture_process.poll() is None:
+                self.logger.warning(f"  [3/3] Force killing process {pid} with SIGKILL...")
+                self.capture_process.kill()
+
+                # Wait briefly for kill to take effect
+                try:
+                    self.capture_process.wait(timeout=5)
+                    self.logger.info(f"  ✅ Process {pid} force killed with SIGKILL")
+                    return True
+                except subprocess.TimeoutExpired:
+                    self.logger.error(f"  ❌ CRITICAL: Process {pid} did not die after SIGKILL!")
+                    return False
+            else:
+                # Process exited between terminate and kill
+                self.logger.info(f"  ✅ Process {pid} exited during wait")
+                return True
+
+        except Exception as e:
+            self.logger.error(f"  ❌ Error force killing PID {pid}: {e}")
+            return False
 
     def start_video_capture(self):
         """Start video capture if in any capture window (thread-safe)"""
@@ -383,6 +452,7 @@ class SurveillanceService:
                 current_minute = now.minute
 
                 # Check if capture process should be stopped (check BEFORE starting new capture)
+                # Modified: 2025-11-19 - Fixed bug: terminate() without wait, added kill() fallback
                 if self.capture_process and self.capture_process.poll() is None:
                     # Check if we're outside ALL capture windows
                     in_window, active_window = self.is_in_capture_window()
@@ -392,15 +462,20 @@ class SurveillanceService:
                         # Determine which window just ended
                         window_name = "morning" if self.current_capture_window and self.current_capture_window["start_hour"] == 11 else "evening"
                         self.logger.info(f"Outside capture window - {window_name} window ended, stopping capture...")
-                        self.capture_process.terminate()
+
+                        # Graceful shutdown with timeout and kill fallback
+                        self._stop_capture_process(process_name=window_name)
                         self.current_capture_window = None
+
                     elif active_window != self.current_capture_window:
                         # We're in a different window than what's currently capturing
                         # This shouldn't happen, but handle it gracefully
                         old_window_name = "morning" if self.current_capture_window and self.current_capture_window["start_hour"] == 11 else "evening"
                         new_window_name = "morning" if active_window["start_hour"] == 11 else "evening"
                         self.logger.warning(f"Window mismatch detected - stopping {old_window_name} capture for {new_window_name} window...")
-                        self.capture_process.terminate()
+
+                        # Graceful shutdown with timeout and kill fallback
+                        self._stop_capture_process(process_name=old_window_name)
                         self.current_capture_window = None
                         time.sleep(2)  # Brief pause before starting new capture
 
@@ -452,7 +527,7 @@ class SurveillanceService:
 
         self.running = True
         self.logger.info("=" * 70)
-        self.logger.info("ASE Surveillance Service Starting v2.1.0")
+        self.logger.info("ASE Surveillance Service Starting v2.2.0")
         self.logger.info("=" * 70)
         self.logger.info("Capture windows (dual schedule):")
         for i, window in enumerate(CAPTURE_WINDOWS, 1):
@@ -490,21 +565,31 @@ class SurveillanceService:
             self.stop()
 
     def stop(self):
-        """Stop the service"""
+        """
+        Stop the service
+        Modified: 2025-11-19 - Use _stop_capture_process() for graceful shutdown with kill fallback
+        """
         self.logger.info("Stopping surveillance service...")
         self.running = False
 
-        # Stop capture process
+        # Stop capture process with graceful shutdown and kill fallback
         if self.capture_process and self.capture_process.poll() is None:
             self.logger.info("Stopping video capture...")
-            self.capture_process.terminate()
-            self.capture_process.wait(timeout=10)
+            self._stop_capture_process(process_name="capture", timeout=10)
 
         # Stop processing process
         if self.processing_process and self.processing_process.poll() is None:
             self.logger.info("Stopping video processing...")
-            self.processing_process.terminate()
-            self.processing_process.wait(timeout=10)
+            try:
+                self.processing_process.terminate()
+                self.processing_process.wait(timeout=10)
+                self.logger.info("Video processing stopped gracefully")
+            except subprocess.TimeoutExpired:
+                self.logger.warning("Video processing did not stop gracefully, force killing...")
+                self.processing_process.kill()
+                self.processing_process.wait(timeout=5)
+            except Exception as e:
+                self.logger.error(f"Error stopping video processing: {e}")
 
         # Wait for threads to finish
         self.logger.info("Waiting for monitoring threads to stop...")
