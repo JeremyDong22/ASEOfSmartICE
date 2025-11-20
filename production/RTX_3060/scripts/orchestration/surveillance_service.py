@@ -165,8 +165,8 @@ class SurveillanceService:
         current_hour = now.hour
 
         if start_hour < end_hour:
-            # Same day window (e.g., 0 AM - 11 PM)
-            return start_hour <= current_hour < end_hour
+            # Same day window (e.g., 0 AM - 11 PM) - inclusive of end_hour
+            return start_hour <= current_hour <= end_hour
         else:
             # Overnight window (e.g., 11 PM - 6 AM)
             return current_hour >= start_hour or current_hour < end_hour

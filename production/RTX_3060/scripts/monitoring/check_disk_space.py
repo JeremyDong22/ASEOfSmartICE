@@ -1,10 +1,20 @@
 #!/usr/bin/env python3
 """
+# Modified: 2025-11-20 - Changed raw video cleanup logic to delete >= 2 days unconditionally
+# Feature: Raw videos now deleted when >= 2 days old, regardless of processing status
+# Reason: Ensures memory/hardware health by preventing accumulation of old files
+
 Disk Space Monitoring and Management
-Version: 2.0.0
-Last Updated: 2025-11-14
+Version: 2.1.0
+Last Updated: 2025-11-20
 
 Purpose: Monitor disk space and intelligently manage video storage with predictive analytics
+
+Changes in v2.1.0 (2025-11-20):
+- BREAKING: Raw videos now deleted when >= 2 days old (not >2 days)
+- BREAKING: Removed "processed video" check - deletes unconditionally
+- Reason: Prevent corrupted/failed videos from accumulating indefinitely
+- Ensures hardware health by regular cleanup
 
 Changes in v2.0.0:
 - Added intelligent disk usage speed monitoring (observe 30 seconds)
@@ -377,20 +387,20 @@ def smart_cleanup(target_free_gb, dry_run=False):
     Intelligently delete old data to free up space
 
     Retention policies:
-    - Raw videos (videos/): Delete when processed + >1 day, or >2 days unconditionally
-    - Processed videos (results/): Delete when >2 days
-    - Screenshots (db/screenshots/): Delete when >30 days
+    - Raw videos (videos/): Delete when >= 2 days old (unconditional)
+    - Processed videos (results/): Delete when > 2 days
+    - Screenshots (db/screenshots/): Delete when > 30 days
     - Database (db/detection_data.db): Never delete (permanent storage)
     """
     print(f"\n{'='*70}")
-    print("INTELLIGENT CLEANUP v2.0")
+    print("INTELLIGENT CLEANUP v2.1")
     print(f"{'='*70}")
     print(f"Target free space: {target_free_gb:.1f} GB")
     print(f"")
     print(f"Retention Policies:")
-    print(f"  Raw videos: Max {RAW_VIDEO_RETENTION_DAYS} days (delete when processed)")
-    print(f"  Processed videos: {PROCESSED_VIDEO_RETENTION_DAYS} days")
-    print(f"  Screenshots: {SCREENSHOTS_RETENTION_DAYS} days")
+    print(f"  Raw videos: >= {RAW_VIDEO_RETENTION_DAYS} days (unconditional deletion)")
+    print(f"  Processed videos: > {PROCESSED_VIDEO_RETENTION_DAYS} days")
+    print(f"  Screenshots: > {SCREENSHOTS_RETENTION_DAYS} days")
     print(f"  Database: Permanent (never deleted)")
     print(f"{'='*70}\n")
 
@@ -410,8 +420,8 @@ def smart_cleanup(target_free_gb, dry_run=False):
         print(f"   Projected free space: {projected_free:.1f} GB")
         return total_freed_gb
 
-    # Phase 2: Clean up raw videos (intelligent - check if processed)
-    print("Phase 2: Raw Video Cleanup (Intelligent)")
+    # Phase 2: Clean up raw videos (unconditional age-based deletion)
+    print("Phase 2: Raw Video Cleanup (Age-Based)")
     print(f"{'='*70}")
 
     video_folders = get_date_folders(VIDEOS_DIR)
@@ -430,23 +440,13 @@ def smart_cleanup(target_free_gb, dry_run=False):
                 continue
 
             camera_id = camera_folder.name
-            is_processed = check_video_processed(date_str, camera_id)
 
-            # Decision logic
-            should_delete = False
-            reason = ""
-
-            if age_days > RAW_VIDEO_RETENTION_DAYS:
-                # Older than 2 days - delete unconditionally
-                should_delete = True
-                reason = f">{RAW_VIDEO_RETENTION_DAYS} days old"
-            elif age_days >= 1 and is_processed:
-                # Processed and at least 1 day old - safe to delete
-                should_delete = True
-                reason = "processed + ≥1 day old"
-
-            if should_delete:
+            # Decision logic: Delete if >= 2 days old (regardless of processing status)
+            # This ensures corrupted/failed videos don't accumulate
+            if age_days >= RAW_VIDEO_RETENTION_DAYS:
                 size_gb = get_folder_size(camera_folder)
+                reason = f">={RAW_VIDEO_RETENTION_DAYS} days old (hardware health)"
+
                 if dry_run:
                     print(f"[DRY RUN] Would delete {date_str}/{camera_id} ({size_gb:.2f} GB) - {reason}")
                 else:
@@ -461,8 +461,7 @@ def smart_cleanup(target_free_gb, dry_run=False):
                     print(f"   Projected free space: {projected_free:.1f} GB")
                     return total_freed_gb
             else:
-                status = "processed" if is_processed else "not processed yet"
-                print(f"⏭  Keeping {date_str}/{camera_id} (age:{age_days}d, {status})")
+                print(f"⏭  Keeping {date_str}/{camera_id} (age:{age_days}d, <{RAW_VIDEO_RETENTION_DAYS} days)")
 
     print(f"{'='*70}\n")
 

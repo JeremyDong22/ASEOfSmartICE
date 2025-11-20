@@ -85,6 +85,7 @@ import re
 
 # Model paths (relative to script location)
 SCRIPT_DIR = Path(__file__).parent.resolve()
+PROJECT_ROOT = SCRIPT_DIR.parent.parent  # production/RTX_3060/ (scripts/video_processing/../.. )
 PERSON_DETECTOR_MODEL = str(SCRIPT_DIR.parent / "models" / "yolov8m.pt")
 STAFF_CLASSIFIER_MODEL = str(SCRIPT_DIR.parent / "models" / "waiter_customer_classifier.pt")
 
@@ -1457,17 +1458,13 @@ def process_video(video_path, person_detector, staff_classifier, config, output_
 
     # Initialize database and session
     # db/ is at production/RTX_3060/db (same level as results/)
-    # Calculate db path with validation and fallback logic
-    db_dir = output_path.parent.parent.parent / "db"
+    # Calculate db path using PROJECT_ROOT constant (set at module level)
+    db_dir = PROJECT_ROOT / "db"
 
     # Validate the calculated path makes sense
     if not db_dir.exists() or db_dir.name != "db":
-        # Fallback: Look for db/ at the same level as output_dir
-        db_dir = Path(output_dir).parent / "db"
-
-        # If still not found, try script directory parent
-        if not db_dir.exists():
-            db_dir = Path(__file__).parent.parent / "db"
+        # Fallback: Try one more level up if PROJECT_ROOT calculation failed
+        db_dir = SCRIPT_DIR.parent.parent.parent.parent / "db"
 
     # Ensure db directory exists
     db_dir.mkdir(parents=True, exist_ok=True)
@@ -1779,8 +1776,8 @@ Examples:
         """
     )
     parser.add_argument("--video", required=True, help="Path to input video")
-    parser.add_argument("--output", default=str(SCRIPT_DIR.parent / "results"),
-                       help="Output directory (default: ../results)")
+    parser.add_argument("--output", default=str(PROJECT_ROOT / "results"),
+                       help="Output directory (default: ../../results)")
     parser.add_argument("--interactive", action="store_true",
                        help="Interactive ROI setup mode")
     parser.add_argument("--duration", type=int, default=None,

@@ -142,7 +142,7 @@ sudo journalctl -u ase_surveillance -f   # View logs
 **Location:** 1958 Commercial District (1958商圈), Mianyang, Sichuan
 **Restaurant:** 野百灵火锅店 (Ye Bai Ling Hotpot)
 **Hardware:** NVIDIA RTX 3060 Linux machine deployed on-site
-**Cameras:** 10 RTSP cameras covering restaurant floor
+**Cameras:** Currently testing with 1 camera (camera_35, 2592x1944)
 **Operating Hours (Dual Windows):**
 - Morning: 11:30 AM - 2:00 PM (2.5 hours)
 - Evening: 5:00 PM - 10:00 PM (5 hours)
@@ -467,10 +467,10 @@ GREEN (Serving):    walking_waiters>0 (staff in walking area)
 - Frame Time: 61.7ms/frame average
 - Capacity: 100 hours in 17.1 hours (dual-threaded)
 
-**Production Workload:**
-- 10 cameras × 7.5 hours = 75 hours daily footage (2.5h morning + 5h evening per camera)
+**Production Workload (Testing - 1 camera):**
+- 1 camera × 7.5 hours = 7.5 hours daily footage (2.5h morning + 5h evening)
 - Processing window: 12:00 AM - 11:00 PM (23 hours available)
-- Current performance: Completes in 17.1 hours (fits within processing window)
+- Current performance: Processes at 3.24x real-time at 5fps
 - Target completion: 11:00 PM (before next day's 11:30 AM capture)
 
 ## Database Schema
@@ -567,11 +567,11 @@ Sitting: (128, 128, 128)    # Gray
 **Before deploying to RTX 3060:**
 1. ✅ Models present in `models/` directory
 2. ✅ Configuration file created (run interactive mode first)
-3. ⏳ 10-camera RTSP connections configured
+3. ✅ Camera RTSP connection configured (camera_35)
 4. ⏳ Cloud upload pipeline (Supabase) setup
-5. ⏳ Cron job for automated scheduling
-6. ⏳ Error handling and health monitoring
-7. ⏳ Disk space monitoring (videos + screenshots + DB)
+5. ✅ Cron job for automated scheduling
+6. ✅ Error handling and health monitoring
+7. ✅ Disk space monitoring (videos + screenshots + DB)
 
 ## Important Warnings
 
