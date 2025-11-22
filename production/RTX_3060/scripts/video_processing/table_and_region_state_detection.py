@@ -1,15 +1,27 @@
 #!/usr/bin/env python3
 """
+# Modified: 2025-11-23 - Added automatic ROI configuration scaling for resolution mismatches
+# Feature: Auto-scales ROI coordinates when config resolution differs from actual video resolution
+# Solves: Configuration created at 1920x1080 on MacBook but production camera runs at 2592x1944
+# Result: Automatic alignment of detection zones regardless of resolution differences
+#
 # Modified: 2025-11-17 - Implemented first-frame duplication for proper debounce buffer filling
 # Feature: Properly initializes table and division states by processing first frame multiple times
 # to fill debounce buffer and ensure initial states are logged to database
 #
 Table and Region State Detection System
-Version: 3.1.0
-Last Updated: 2025-11-17
+Version: 3.2.0
+Last Updated: 2025-11-23
 
 Purpose: Unified system monitoring both table states and regional staff coverage
 Combines table-level monitoring (IDLE/BUSY/CLEANING) with division-level monitoring (staffed/unstaffed)
+
+Changes in v3.2.0:
+- Added automatic ROI configuration scaling for resolution mismatches
+- Auto-detects when config resolution differs from actual video resolution
+- Scales all polygon coordinates (division, tables, sitting areas, service areas)
+- Prevents misalignment when config created on different resolution than production
+- Example: Config at 1920x1080 auto-scales to 2592x1944 camera feed
 
 Changes in v3.1.0:
 - FIXED: First-frame duplication to properly fill debounce buffer
@@ -820,6 +832,87 @@ def setup_all_rois_from_video(video_path):
             return None
 
 
+def scale_polygon(polygon, scale_x, scale_y):
+    """
+    Scale polygon coordinates by given factors
+
+    Args:
+        polygon: List of [x, y] coordinates
+        scale_x: X-axis scaling factor
+        scale_y: Y-axis scaling factor
+
+    Returns:
+        Scaled polygon coordinates
+    """
+    return [[int(x * scale_x), int(y * scale_y)] for x, y in polygon]
+
+
+def auto_scale_config(config, actual_width, actual_height):
+    """
+    Automatically scale ROI configuration to match actual frame dimensions.
+
+    This function handles resolution mismatches between the configuration creation
+    environment (e.g., MacBook with 1920x1080 test video) and the production
+    environment (e.g., Linux RTX with 2592x1944 camera feed).
+
+    Args:
+        config: Original configuration dictionary
+        actual_width: Actual frame width from video
+        actual_height: Actual frame height from video
+
+    Returns:
+        Scaled configuration dictionary
+
+    Note:
+        Configuration created at 1920x1080 but production camera at 2592x1944?
+        This function automatically scales all ROI coordinates to match.
+    """
+    import copy
+    scaled_config = copy.deepcopy(config)
+
+    # Get configured frame size (default to 1920x1080 if not specified)
+    config_width, config_height = scaled_config.get('frame_size', [1920, 1080])
+
+    # Check if scaling is needed
+    if config_width == actual_width and config_height == actual_height:
+        return scaled_config
+
+    # Calculate scaling factors
+    scale_x = actual_width / config_width
+    scale_y = actual_height / config_height
+
+    print(f"⚠️  Resolution mismatch detected - Auto-scaling ROI configuration")
+    print(f"   Config resolution:  {config_width}x{config_height}")
+    print(f"   Actual resolution:  {actual_width}x{actual_height}")
+    print(f"   Scale factors:      {scale_x:.3f}x (width), {scale_y:.3f}x (height)")
+
+    # Scale division polygon
+    if 'division' in scaled_config:
+        scaled_config['division'] = scale_polygon(scaled_config['division'], scale_x, scale_y)
+
+    # Scale tables
+    if 'tables' in scaled_config:
+        for table in scaled_config['tables']:
+            table['polygon'] = scale_polygon(table['polygon'], scale_x, scale_y)
+
+    # Scale sitting areas
+    if 'sitting_areas' in scaled_config:
+        for area in scaled_config['sitting_areas']:
+            area['polygon'] = scale_polygon(area['polygon'], scale_x, scale_y)
+
+    # Scale service areas
+    if 'service_areas' in scaled_config:
+        for area in scaled_config['service_areas']:
+            area['polygon'] = scale_polygon(area['polygon'], scale_x, scale_y)
+
+    # Update frame size to actual
+    scaled_config['frame_size'] = [actual_width, actual_height]
+
+    print(f"✅ Configuration auto-scaled successfully")
+
+    return scaled_config
+
+
 def load_config_from_file():
     """Load configuration from file"""
     if not os.path.exists(CONFIG_FILE):
@@ -1377,14 +1470,10 @@ def process_video(video_path, person_detector, staff_classifier, config, output_
     # Extract camera_id from filename
     camera_id = extract_camera_id_from_filename(video_path)
 
-    # Reconstruct objects
-    division_polygon, tables, sitting_areas, service_areas = reconstruct_objects_from_config(config)
-
     print(f"\n{'='*70}")
     print(f"Processing Video: {os.path.basename(video_path)}")
     print(f"Camera ID: {camera_id}")
     print(f"{'='*70}")
-    print(f"ROIs: Division=1 Tables={len(tables)} Sitting={len(sitting_areas)} Service={len(service_areas)}\n")
 
     # Open video
     cap = cv2.VideoCapture(video_path)
@@ -1398,6 +1487,14 @@ def process_video(video_path, person_detector, staff_classifier, config, output_
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     duration = frame_count / fps if fps > 0 else 0
+
+    # Auto-scale configuration to match actual video resolution
+    config = auto_scale_config(config, width, height)
+
+    # Reconstruct objects with scaled configuration
+    division_polygon, tables, sitting_areas, service_areas = reconstruct_objects_from_config(config)
+
+    print(f"ROIs: Division=1 Tables={len(tables)} Sitting={len(sitting_areas)} Service={len(service_areas)}\n")
 
     max_frames = frame_count
     if duration_limit is not None:
