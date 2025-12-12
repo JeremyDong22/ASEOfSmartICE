@@ -402,6 +402,9 @@ def get_processed_videos(logger: logging.Logger) -> Set[str]:
     """
     Get set of already processed video filenames from database
 
+    Modified 2025-12-10: Query 'sessions' table instead of non-existent 'videos' table
+    This matches the duplicate check in table_and_region_state_detection.py
+
     Returns: Set of video filenames that have been processed
     """
     processed_videos = set()
@@ -414,19 +417,19 @@ def get_processed_videos(logger: logging.Logger) -> Set[str]:
         conn = sqlite3.connect(str(DATABASE_PATH))
         cursor = conn.cursor()
 
-        # Query videos table for processed videos
-        # is_processed = 1 means video has been successfully processed
+        # Modified 2025-12-10: Query sessions table (actual table used by detection script)
+        # video_file column contains the filename of processed videos
         cursor.execute("""
-            SELECT video_filename
-            FROM videos
-            WHERE is_processed = 1
+            SELECT DISTINCT video_file
+            FROM sessions
+            WHERE video_file IS NOT NULL
         """)
 
         for row in cursor.fetchall():
             processed_videos.add(row[0])
 
         conn.close()
-        logger.info(f"Found {len(processed_videos)} already processed videos in database")
+        logger.info(f"Found {len(processed_videos)} already processed videos in database (sessions table)")
 
     except sqlite3.Error as e:
         logger.error(f"Database error while checking for duplicates: {e}")

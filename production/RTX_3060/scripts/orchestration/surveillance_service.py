@@ -1,8 +1,21 @@
 #!/usr/bin/env python3
 """
 ASE Restaurant Surveillance Service - Automated Daemon
-Version: 2.2.0
+Version: 2.4.0
 Created: 2025-11-16
+Modified: 2025-11-22 - v2.3.0: CRITICAL FIX - Increased SIGTERM timeout for video finalization
+  - Increased timeout from 10s to 30s to allow FFmpeg to properly close MP4 files
+  - Prevents "moov atom not found" corruption when capture ends
+  - FFmpeg needs time to write final fragments and metadata
+  - Process now guaranteed to stop within 35 seconds (30s SIGTERM + 5s SIGKILL)
+  - Fixes 100% video corruption issue reported on 2025-11-20 and 2025-11-21
+
+Modified: 2025-12-12 - v2.4.0: Added automatic zombie process cleanup
+  - New _cleanup_zombies() method using os.waitpid() with WNOHANG
+  - Runs every scheduler loop iteration (every 30 seconds)
+  - Prevents defunct processes from accumulating
+  - Logs zombie cleanup for monitoring
+
 Modified: 2025-11-19 - v2.2.0: Fixed critical bug - capture process refusing to terminate
   - Added graceful shutdown with timeout mechanism (10s wait for SIGTERM)
   - Implemented SIGKILL fallback if SIGTERM fails
@@ -196,14 +209,16 @@ class SurveillanceService:
 
         return (False, None)
 
-    def _stop_capture_process(self, process_name="capture", timeout=10):
+    def _stop_capture_process(self, process_name="capture", timeout=30):
         """
         Stop capture process with graceful shutdown and kill fallback
         Added: 2025-11-19 - Fix for capture process refusing to terminate
+        Modified: 2025-11-22 - Increased timeout from 10s to 30s for FFmpeg finalization
 
         Args:
             process_name: Name for logging (e.g., "morning", "evening")
-            timeout: Seconds to wait for graceful shutdown before kill (default: 10)
+            timeout: Seconds to wait for graceful shutdown before kill (default: 30)
+                    Increased to allow FFmpeg to properly finalize MP4 files
 
         Returns:
             bool: True if stopped successfully, False otherwise
@@ -256,6 +271,39 @@ class SurveillanceService:
         except Exception as e:
             self.logger.error(f"  ❌ Error force killing PID {pid}: {e}")
             return False
+
+    def _cleanup_zombies(self):
+        """
+        Clean up zombie (defunct) child processes.
+        Modified: 2025-12-12 - Added automatic zombie cleanup
+
+        Zombies occur when child processes exit but parent hasn't called wait().
+        This method uses os.waitpid() with WNOHANG to reap any zombie children
+        without blocking.
+        """
+        cleaned = 0
+        try:
+            while True:
+                # WNOHANG: Return immediately if no child has exited
+                # -1: Wait for any child process
+                pid, status = os.waitpid(-1, os.WNOHANG)
+                if pid == 0:
+                    # No more zombies to reap
+                    break
+                cleaned += 1
+                # Log the cleanup
+                exit_code = os.WEXITSTATUS(status) if os.WIFEXITED(status) else -1
+                self.logger.debug(f"🧹 Reaped zombie process PID {pid} (exit code: {exit_code})")
+        except ChildProcessError:
+            # No child processes exist - this is normal
+            pass
+        except Exception as e:
+            self.logger.warning(f"Error during zombie cleanup: {e}")
+
+        if cleaned > 0:
+            self.logger.info(f"🧹 Cleaned up {cleaned} zombie process(es)")
+
+        return cleaned
 
     def start_video_capture(self):
         """Start video capture if in any capture window (thread-safe)"""
@@ -447,6 +495,9 @@ class SurveillanceService:
 
         while self.running:
             try:
+                # Cleanup any zombie processes (Modified: 2025-12-12)
+                self._cleanup_zombies()
+
                 now = datetime.now()
                 current_hour = now.hour
                 current_minute = now.minute
@@ -575,7 +626,7 @@ class SurveillanceService:
         # Stop capture process with graceful shutdown and kill fallback
         if self.capture_process and self.capture_process.poll() is None:
             self.logger.info("Stopping video capture...")
-            self._stop_capture_process(process_name="capture", timeout=10)
+            self._stop_capture_process(process_name="capture", timeout=30)
 
         # Stop processing process
         if self.processing_process and self.processing_process.poll() is None:
