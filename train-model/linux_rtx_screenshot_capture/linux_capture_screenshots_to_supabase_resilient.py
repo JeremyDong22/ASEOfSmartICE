@@ -24,11 +24,16 @@ SUPABASE_URL = "https://wdpeoyugsxqnpwwtkqsl.supabase.co"
 SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndkcGVveXVnc3hxbnB3d3RrcXNsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQxNDgwNzgsImV4cCI6MjA1OTcyNDA3OH0.9bUpuZCOZxDSH3KsIu6FwWZyAvnV5xPJGNpO3luxWOE"
 STORAGE_BUCKET = "ASE"
 
+# Machine identifier - used to differentiate uploads from different machines
+MACHINE_ID = "smartice001"
+
 # Configuration
 CAPTURE_INTERVAL = 300  # 5 minutes in seconds
 CONNECTION_TIMEOUT = 5  # seconds
 RETRY_ATTEMPTS = 3
-CAMERA_CONFIG_FILE = "../../test/camera_connection_results_20250927_230846.json"
+# Camera config options - SmartICE (30 cameras via NVR) or legacy Ye Bai Ling
+CAMERA_CONFIG_FILE = "../../unv-camera-detection/smartice_cameras_config.json"
+# CAMERA_CONFIG_FILE = "../../test/camera_connection_results_20250927_230846.json"  # Legacy config
 MAX_RUNTIME_HOURS = 1.98  # 1hr 59min - Genius design to avoid race condition with cron
 STOP_TIME = 22  # Stop at 10 PM (22:00)
 
@@ -65,10 +70,15 @@ class ResilientSupabaseAgent:
         self.backup_dir = BACKUP_DIR
         self.backup_dir.mkdir(exist_ok=True)
 
-        # Create subdirectories for each camera
-        for i in range(20, 40):  # Potential camera IPs
+        # Create subdirectories for each camera (legacy IP-based)
+        for i in range(20, 40):
             camera_dir = self.backup_dir / f"camera_{i}"
             camera_dir.mkdir(exist_ok=True)
+
+        # Create subdirectories for each channel (SmartICE NVR-based)
+        for i in range(1, 33):
+            channel_dir = self.backup_dir / f"channel_{i}"
+            channel_dir.mkdir(exist_ok=True)
 
         print(f"📁 Backup directory ready: {self.backup_dir}")
 
@@ -125,25 +135,35 @@ class ResilientSupabaseAgent:
         global WORKING_CAMERAS
 
         try:
-            config_path = Path(__file__).parent.parent.parent / "test" / "camera_connection_results_20250927_230846.json"
+            # Try SmartICE config first
+            config_path = Path(__file__).parent.parent.parent / "unv-camera-detection" / "smartice_cameras_config.json"
+            if not config_path.exists():
+                # Fall back to legacy config
+                config_path = Path(__file__).parent.parent.parent / "test" / "camera_connection_results_20250927_230846.json"
+
             with open(config_path, 'r') as f:
                 data = json.load(f)
                 WORKING_CAMERAS = data.get('successful_connections', [])
 
-            print(f"📋 Loaded {len(WORKING_CAMERAS)} verified camera configurations")
+            print(f"📋 Loaded {len(WORKING_CAMERAS)} verified camera configurations from {config_path.name}")
 
             for i, camera in enumerate(WORKING_CAMERAS, 1):
-                print(f"   {i}. {camera['ip']} ({camera['resolution']}) - {camera['status']}")
+                # Support both channel-based (SmartICE) and IP-based (legacy) configs
+                if 'channel' in camera:
+                    print(f"   {i}. Channel {camera['channel']} ({camera['resolution']}) - {camera['status']}")
+                else:
+                    print(f"   {i}. {camera['ip']} ({camera['resolution']}) - {camera['status']}")
 
         except FileNotFoundError:
             print("⚠️ Camera config file not found. Using fallback configuration.")
             WORKING_CAMERAS = [{
-                "ip": "202.168.40.35",
+                "ip": "192.168.1.3",
+                "channel": 1,
                 "username": "admin",
                 "password": "123456",
-                "rtsp_url": "rtsp://admin:123456@202.168.40.35:554/Streaming/Channels/102",
+                "rtsp_url": "rtsp://admin:123456@192.168.1.3:554/unicast/c1/s0/live",
                 "resolution": "1920x1080",
-                "status": "stable"
+                "status": "online"
             }]
 
     def save_to_database(self, filename, camera_name, local_path, resolution, file_size_kb, status='pending'):
@@ -369,8 +389,12 @@ class ResilientSupabaseAgent:
 
                     # Prepare metadata
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    camera_suffix = camera_ip.split('.')[-1]
-                    camera_name = f"camera_{camera_suffix}"
+                    # Support both channel-based (SmartICE) and IP-based (legacy) naming
+                    if 'channel' in camera_config:
+                        camera_name = f"channel_{camera_config['channel']}"
+                    else:
+                        camera_suffix = camera_ip.split('.')[-1]
+                        camera_name = f"camera_{camera_suffix}"
                     resolution = camera_config['resolution']
 
                     # Step 1: Always save local backup first
@@ -382,14 +406,15 @@ class ResilientSupabaseAgent:
                         print(f"❌ {camera_ip}: Failed to save local backup")
                         continue
 
-                    # Step 2: Try Supabase upload
-                    supabase_filename = f"{camera_name}/{timestamp}_{resolution.replace('x', '_')}.jpg"
+                    # Step 2: Try Supabase upload (with machine ID prefix)
+                    supabase_filename = f"{MACHINE_ID}/{camera_name}/{timestamp}_{resolution.replace('x', '_')}.jpg"
                     upload_success, result = self.upload_to_supabase_storage(image_data, supabase_filename)
 
                     if upload_success:
-                        # Step 3: Insert database record
+                        # Step 3: Insert database record (with machine ID)
+                        db_camera_name = f"{MACHINE_ID}_{camera_name}"
                         db_success, db_result = self.insert_snapshot_record(
-                            result, camera_name, resolution, file_size_kb
+                            result, db_camera_name, resolution, file_size_kb
                         )
 
                         if db_success:

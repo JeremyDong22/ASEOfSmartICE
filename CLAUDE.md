@@ -35,6 +35,12 @@ Primary model training pipeline. Frequently used for developing custom YOLO-base
 - `scripts/` - Model training execution scripts
 - `linux_rtx_screenshot_capture/` - **Critical**: Automated screenshot capture scripts for Linux RTX 3060 machines in restaurants
 
+#### `unv-camera-detection/`
+UNV (Uniview) camera detection and network discovery tools. Contains:
+- `detect_cameras.py` - Python script to detect UNV cameras on local network using ONVIF, LAPI, and ARP scanning
+- `requirements.txt` - Python dependencies (requests)
+- `CAMERA_SETUP_GUIDE.md` - Complete documentation of camera discovery workflow and RTSP URLs
+
 ## System Architecture
 
 ### Development Environment
@@ -51,6 +57,15 @@ The `train-model/linux_rtx_screenshot_capture/` folder contains automation for t
 
 ## Camera Configuration
 
+### SmartICE Network (Current)
+- **NVR IP**: 192.168.1.3
+- **Total Cameras**: 30 (connected via NVR internal PoE)
+- **NVR Credentials**: admin / 123456
+- **RTSP URL Pattern**: `rtsp://admin:123456@192.168.1.3:554/unicast/c{1-30}/s0/live`
+- **Stream Types**: `s0` = main stream (high quality), `s1` = sub stream (lower bandwidth)
+- **Network Type**: Dedicated private surveillance network
+
+### Previous Configuration (Ye Bai Ling)
 - **RTSP Cameras**: Currently testing with 1 camera (camera_35)
 - **Resolution**: 2592x1944 (5MP)
 - **Sub-stream Protocol**: Always uses `/102` endpoints for stability
@@ -68,6 +83,17 @@ python3 sub-stream/web_stream_preview.py
 
 # Run model testing
 python3 test-model/[specific_test_script].py
+
+# Detect UNV cameras on network
+python3 unv-camera-detection/detect_cameras.py
+
+# Test single RTSP stream
+ffplay -rtsp_transport tcp rtsp://admin:123456@192.168.1.3:554/unicast/c1/s0/live
+
+# Test all 30 camera channels
+for ch in $(seq 1 30); do
+  timeout 3 ffprobe -v quiet "rtsp://admin:123456@192.168.1.3:554/unicast/c${ch}/s0/live" && echo "Channel $ch: Online"
+done
 ```
 
 ## Tech Stack
