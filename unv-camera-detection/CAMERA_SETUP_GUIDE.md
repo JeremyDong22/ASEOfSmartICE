@@ -111,7 +111,7 @@ Location: `/home/smartice001/smartice/ASEOfSmartICE/unv-camera-detection/detect_
 ```bash
 python3 detect_cameras.py                      # Auto-detect network
 python3 detect_cameras.py -n 192.168.1.0/24    # Specific network
-python3 detect_cameras.py -u admin -p 123456   # Custom credentials
+python3 detect_cameras.py -u admin -p ybl123456789   # Custom credentials
 python3 detect_cameras.py -o cameras.json      # Export to JSON
 ```
 
@@ -123,7 +123,7 @@ python3 detect_cameras.py -o cameras.json      # Export to JSON
 
 - **IP Address:** 192.168.1.3
 - **Username:** admin
-- **Password:** 123456
+- **Password:** ybl123456789
 - **Web Interface:** http://192.168.1.3 or https://192.168.1.3
 
 ### Key Finding
@@ -138,7 +138,7 @@ The 30 cameras are connected to the **NVR's internal PoE ports**, not directly a
 
 ```bash
 for ch in $(seq 1 36); do
-  if timeout 3 ffprobe -v quiet "rtsp://admin:123456@192.168.1.3:554/unicast/c${ch}/s0/live"; then
+  if timeout 3 ffprobe -v quiet "rtsp://admin:ybl123456789@192.168.1.3:554/unicast/c${ch}/s0/live"; then
     echo "Channel $ch: Online"
   fi
 done
@@ -155,7 +155,7 @@ All channels 1-30 responded successfully.
 ### URL Format
 
 ```
-rtsp://admin:123456@192.168.1.3:554/unicast/c{CHANNEL}/s0/live
+rtsp://admin:ybl123456789@192.168.1.3:554/unicast/c{CHANNEL}/s0/live
 ```
 
 - `s0` = Main stream (high quality)
@@ -165,36 +165,36 @@ rtsp://admin:123456@192.168.1.3:554/unicast/c{CHANNEL}/s0/live
 
 | Channel | RTSP URL |
 |---------|----------|
-| 1 | `rtsp://admin:123456@192.168.1.3:554/unicast/c1/s0/live` |
-| 2 | `rtsp://admin:123456@192.168.1.3:554/unicast/c2/s0/live` |
-| 3 | `rtsp://admin:123456@192.168.1.3:554/unicast/c3/s0/live` |
-| 4 | `rtsp://admin:123456@192.168.1.3:554/unicast/c4/s0/live` |
-| 5 | `rtsp://admin:123456@192.168.1.3:554/unicast/c5/s0/live` |
-| 6 | `rtsp://admin:123456@192.168.1.3:554/unicast/c6/s0/live` |
-| 7 | `rtsp://admin:123456@192.168.1.3:554/unicast/c7/s0/live` |
-| 8 | `rtsp://admin:123456@192.168.1.3:554/unicast/c8/s0/live` |
-| 9 | `rtsp://admin:123456@192.168.1.3:554/unicast/c9/s0/live` |
-| 10 | `rtsp://admin:123456@192.168.1.3:554/unicast/c10/s0/live` |
-| 11 | `rtsp://admin:123456@192.168.1.3:554/unicast/c11/s0/live` |
-| 12 | `rtsp://admin:123456@192.168.1.3:554/unicast/c12/s0/live` |
-| 13 | `rtsp://admin:123456@192.168.1.3:554/unicast/c13/s0/live` |
-| 14 | `rtsp://admin:123456@192.168.1.3:554/unicast/c14/s0/live` |
-| 15 | `rtsp://admin:123456@192.168.1.3:554/unicast/c15/s0/live` |
-| 16 | `rtsp://admin:123456@192.168.1.3:554/unicast/c16/s0/live` |
-| 17 | `rtsp://admin:123456@192.168.1.3:554/unicast/c17/s0/live` |
-| 18 | `rtsp://admin:123456@192.168.1.3:554/unicast/c18/s0/live` |
-| 19 | `rtsp://admin:123456@192.168.1.3:554/unicast/c19/s0/live` |
-| 20 | `rtsp://admin:123456@192.168.1.3:554/unicast/c20/s0/live` |
-| 21 | `rtsp://admin:123456@192.168.1.3:554/unicast/c21/s0/live` |
-| 22 | `rtsp://admin:123456@192.168.1.3:554/unicast/c22/s0/live` |
-| 23 | `rtsp://admin:123456@192.168.1.3:554/unicast/c23/s0/live` |
-| 24 | `rtsp://admin:123456@192.168.1.3:554/unicast/c24/s0/live` |
-| 25 | `rtsp://admin:123456@192.168.1.3:554/unicast/c25/s0/live` |
-| 26 | `rtsp://admin:123456@192.168.1.3:554/unicast/c26/s0/live` |
-| 27 | `rtsp://admin:123456@192.168.1.3:554/unicast/c27/s0/live` |
-| 28 | `rtsp://admin:123456@192.168.1.3:554/unicast/c28/s0/live` |
-| 29 | `rtsp://admin:123456@192.168.1.3:554/unicast/c29/s0/live` |
-| 30 | `rtsp://admin:123456@192.168.1.3:554/unicast/c30/s0/live` |
+| 1 | `rtsp://admin:ybl123456789@192.168.1.3:554/unicast/c1/s0/live` |
+| 2 | `rtsp://admin:ybl123456789@192.168.1.3:554/unicast/c2/s0/live` |
+| 3 | `rtsp://admin:ybl123456789@192.168.1.3:554/unicast/c3/s0/live` |
+| 4 | `rtsp://admin:ybl123456789@192.168.1.3:554/unicast/c4/s0/live` |
+| 5 | `rtsp://admin:ybl123456789@192.168.1.3:554/unicast/c5/s0/live` |
+| 6 | `rtsp://admin:ybl123456789@192.168.1.3:554/unicast/c6/s0/live` |
+| 7 | `rtsp://admin:ybl123456789@192.168.1.3:554/unicast/c7/s0/live` |
+| 8 | `rtsp://admin:ybl123456789@192.168.1.3:554/unicast/c8/s0/live` |
+| 9 | `rtsp://admin:ybl123456789@192.168.1.3:554/unicast/c9/s0/live` |
+| 10 | `rtsp://admin:ybl123456789@192.168.1.3:554/unicast/c10/s0/live` |
+| 11 | `rtsp://admin:ybl123456789@192.168.1.3:554/unicast/c11/s0/live` |
+| 12 | `rtsp://admin:ybl123456789@192.168.1.3:554/unicast/c12/s0/live` |
+| 13 | `rtsp://admin:ybl123456789@192.168.1.3:554/unicast/c13/s0/live` |
+| 14 | `rtsp://admin:ybl123456789@192.168.1.3:554/unicast/c14/s0/live` |
+| 15 | `rtsp://admin:ybl123456789@192.168.1.3:554/unicast/c15/s0/live` |
+| 16 | `rtsp://admin:ybl123456789@192.168.1.3:554/unicast/c16/s0/live` |
+| 17 | `rtsp://admin:ybl123456789@192.168.1.3:554/unicast/c17/s0/live` |
+| 18 | `rtsp://admin:ybl123456789@192.168.1.3:554/unicast/c18/s0/live` |
+| 19 | `rtsp://admin:ybl123456789@192.168.1.3:554/unicast/c19/s0/live` |
+| 20 | `rtsp://admin:ybl123456789@192.168.1.3:554/unicast/c20/s0/live` |
+| 21 | `rtsp://admin:ybl123456789@192.168.1.3:554/unicast/c21/s0/live` |
+| 22 | `rtsp://admin:ybl123456789@192.168.1.3:554/unicast/c22/s0/live` |
+| 23 | `rtsp://admin:ybl123456789@192.168.1.3:554/unicast/c23/s0/live` |
+| 24 | `rtsp://admin:ybl123456789@192.168.1.3:554/unicast/c24/s0/live` |
+| 25 | `rtsp://admin:ybl123456789@192.168.1.3:554/unicast/c25/s0/live` |
+| 26 | `rtsp://admin:ybl123456789@192.168.1.3:554/unicast/c26/s0/live` |
+| 27 | `rtsp://admin:ybl123456789@192.168.1.3:554/unicast/c27/s0/live` |
+| 28 | `rtsp://admin:ybl123456789@192.168.1.3:554/unicast/c28/s0/live` |
+| 29 | `rtsp://admin:ybl123456789@192.168.1.3:554/unicast/c29/s0/live` |
+| 30 | `rtsp://admin:ybl123456789@192.168.1.3:554/unicast/c30/s0/live` |
 
 ---
 
@@ -203,13 +203,13 @@ rtsp://admin:123456@192.168.1.3:554/unicast/c{CHANNEL}/s0/live
 ### Using VLC
 
 ```bash
-vlc rtsp://admin:123456@192.168.1.3:554/unicast/c1/s0/live
+vlc rtsp://admin:ybl123456789@192.168.1.3:554/unicast/c1/s0/live
 ```
 
 ### Using FFplay
 
 ```bash
-ffplay -rtsp_transport tcp rtsp://admin:123456@192.168.1.3:554/unicast/c1/s0/live
+ffplay -rtsp_transport tcp rtsp://admin:ybl123456789@192.168.1.3:554/unicast/c1/s0/live
 ```
 
 ### Using Python/OpenCV
@@ -217,7 +217,7 @@ ffplay -rtsp_transport tcp rtsp://admin:123456@192.168.1.3:554/unicast/c1/s0/liv
 ```python
 import cv2
 
-cap = cv2.VideoCapture("rtsp://admin:123456@192.168.1.3:554/unicast/c1/s0/live")
+cap = cv2.VideoCapture("rtsp://admin:ybl123456789@192.168.1.3:554/unicast/c1/s0/live")
 while True:
     ret, frame = cap.read()
     if ret:
@@ -277,11 +277,36 @@ sudo systemctl restart apache2 zoneminder
 
 ---
 
+## Stream Configuration (Updated: December 23, 2025)
+
+All 30 cameras were reconfigured from HEVC to H.264 codec for better software decoding compatibility.
+
+### Main Stream (s0)
+| Setting | Value |
+|---------|-------|
+| Resolution | 1920 × 1080 |
+| Bitrate | 4096 Kbps |
+| Frame Rate | 20 fps |
+| Codec | H.264 |
+
+### Sub Stream (s1)
+| Setting | Value |
+|---------|-------|
+| Resolution | 1280 × 720 |
+| Bitrate | 2048 Kbps |
+| Frame Rate | 10 fps |
+| Codec | H.264 |
+
+**Note:** HEVC (H.265) was causing decode errors with software decoding (CPU). Converting to H.264 resolved these issues for multi-camera viewing scenarios.
+
+---
+
 ## Summary
 
 1. **Network Type:** Dedicated surveillance network with PoE switch
 2. **NVR:** Uniview NVR at 192.168.1.3 (MAC: 88:26:3F:...)
 3. **Cameras:** 30 cameras connected via NVR internal PoE ports
 4. **Access Method:** RTSP streams through NVR proxy
-5. **Credentials:** admin / 123456
-6. **Stream URL Pattern:** `rtsp://admin:123456@192.168.1.3:554/unicast/c{1-30}/s0/live`
+5. **Credentials:** admin / ybl123456789
+6. **Stream URL Pattern:** `rtsp://admin:ybl123456789@192.168.1.3:554/unicast/c{1-30}/s0/live`
+7. **Codec:** H.264 (converted from HEVC on December 23, 2025)
