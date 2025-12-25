@@ -119,6 +119,40 @@ After reviewing test results:
 4. Identify any false positives or missed detections
 5. Deploy to production if metrics are satisfactory
 
+## Camera Configuration (SmartICE NVR)
+
+### NVR Connection
+- **NVR IP**: 192.168.1.3
+- **Port**: 554 (RTSP)
+- **Username**: admin
+- **Password**: ybl123456789
+- **Total Channels**: 30
+
+### RTSP URL Pattern
+```
+rtsp://admin:ybl123456789@192.168.1.3:554/unicast/c{CHANNEL}/s{STREAM}/live
+```
+- `{CHANNEL}`: 1-30
+- `{STREAM}`: 0 = main stream (high quality), 1 = sub stream (lower bandwidth)
+
+### Active Test Channels
+| Channel | Port | Resolution | Description |
+|---------|------|------------|-------------|
+| 2 | 5002 | TBD | Testing channel |
+| 14 | 5014 | TBD | Testing channel |
+| 18 | 5018 | 2560x1440 | Primary test channel |
+
+### Quick Test Commands
+```bash
+# Test channel connectivity
+ffprobe -v error -rtsp_transport tcp "rtsp://admin:ybl123456789@192.168.1.3:554/unicast/c18/s0/live"
+
+# Test all channels (1-30)
+for ch in $(seq 1 30); do
+  ffprobe -v quiet -rtsp_transport tcp "rtsp://admin:ybl123456789@192.168.1.3:554/unicast/c${ch}/s0/live" && echo "Channel $ch: Online" || echo "Channel $ch: Offline"
+done
+```
+
 ## Real-Time Detection Server
 
 ### Files
@@ -126,7 +160,8 @@ After reviewing test results:
 - `templates/detection_dashboard.html` - Web dashboard UI
 
 ### Features
-- Connects to RTSP stream (Channel 18 from SmartICE NVR)
+- Connects to RTSP stream from SmartICE NVR
+- Supports multiple channels via command line argument
 - Runs YOLO11n inference in real-time
 - Displays comprehensive metrics via web dashboard
 - Auto-reconnect on stream failures
@@ -140,9 +175,13 @@ After reviewing test results:
 ### Usage
 ```bash
 cd test-model/staff_detector_v4_yolo11n
-python3 realtime_detection_server.py
 
-# Open http://localhost:5018 in browser
+# Run on specific channel (port = 5000 + channel)
+python3 realtime_detection_server.py --channel 18   # http://localhost:5018
+python3 realtime_detection_server.py --channel 14   # http://localhost:5014
+python3 realtime_detection_server.py --channel 2    # http://localhost:5002
+
+# Open http://localhost:50XX in browser (XX = channel number)
 ```
 
 ## Version

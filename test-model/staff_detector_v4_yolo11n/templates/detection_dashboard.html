@@ -296,7 +296,7 @@
         <div class="video-container">
             <div class="video-header">
                 <h2>Live Feed - SmartICE NVR</h2>
-                <span class="channel-badge">Channel 18</span>
+                <span class="channel-badge" id="channel-badge">Channel --</span>
             </div>
             <img src="/video_feed" alt="Live Detection Feed" id="video-feed">
         </div>
@@ -472,6 +472,9 @@
                     // Model config
                     document.getElementById('conf-threshold').textContent = data.conf_threshold;
                     document.getElementById('iou-threshold').textContent = data.iou_threshold;
+
+                    // Channel
+                    document.getElementById('channel-badge').textContent = 'Channel ' + data.channel;
                 })
                 .catch(err => {
                     console.error('Stats fetch error:', err);

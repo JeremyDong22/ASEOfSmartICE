@@ -1,18 +1,24 @@
 #!/usr/bin/env python3
 """
 ASEOfSmartICE Staff Detector V4 - Real-Time Detection Server
-Version: 1.0.0
+Version: 1.1.0 - Added multi-channel support via --channel argument
 
 Purpose:
 - Serve real-time staff detection via web interface
-- Connect to NVR RTSP stream (channel 18)
+- Connect to NVR RTSP stream (configurable channel)
 - Display comprehensive detection and video quality metrics
 - Track FPS, latency, detection confidence, and video health stats
 
-RTSP Source: Channel 18 from SmartICE NVR (192.168.1.3)
+RTSP Source: SmartICE NVR (192.168.1.3) - Channels 1-30
 Model: YOLO11n Staff Detection (~5.4MB)
 
+Usage:
+  python3 realtime_detection_server.py --channel 18   # Port 5018
+  python3 realtime_detection_server.py --channel 14   # Port 5014
+  python3 realtime_detection_server.py --channel 2    # Port 5002
+
 Created: 2025-12-25
+Updated: 2025-12-25 - Added --channel argument support
 """
 
 import cv2
@@ -22,6 +28,7 @@ from flask import Flask, render_template, Response, jsonify
 import threading
 import time
 import os
+import argparse
 from collections import deque
 from datetime import datetime
 
@@ -29,9 +36,28 @@ from datetime import datetime
 # Configuration
 # =============================================================================
 
-# RTSP Configuration - Channel 18 from SmartICE NVR
-RTSP_URL = "rtsp://admin:123456@192.168.1.3:554/unicast/c18/s0/live"
-RTSP_URL_SUB = "rtsp://admin:123456@192.168.1.3:554/unicast/c18/s1/live"  # Substream fallback
+# NVR Configuration
+NVR_IP = "192.168.1.3"
+NVR_PORT = 554
+NVR_USER = "admin"
+NVR_PASS = "ybl123456789"
+
+# Default channel (can be overridden via --channel argument)
+DEFAULT_CHANNEL = 18
+
+# These will be set based on channel selection
+CHANNEL = DEFAULT_CHANNEL
+RTSP_URL = ""
+RTSP_URL_SUB = ""
+SERVER_PORT = 5000 + DEFAULT_CHANNEL
+
+def set_channel(channel):
+    """Configure RTSP URLs and port based on channel number"""
+    global CHANNEL, RTSP_URL, RTSP_URL_SUB, SERVER_PORT
+    CHANNEL = channel
+    RTSP_URL = f"rtsp://{NVR_USER}:{NVR_PASS}@{NVR_IP}:{NVR_PORT}/unicast/c{channel}/s0/live"
+    RTSP_URL_SUB = f"rtsp://{NVR_USER}:{NVR_PASS}@{NVR_IP}:{NVR_PORT}/unicast/c{channel}/s1/live"
+    SERVER_PORT = 5000 + channel
 
 # Model Configuration
 MODEL_PATH = "models/staff_detector.pt"
@@ -40,7 +66,6 @@ IOU_THRESHOLD = 0.45
 
 # Server Configuration
 SERVER_HOST = "0.0.0.0"
-SERVER_PORT = 5018
 
 # Visual Configuration
 STAFF_COLOR = (0, 255, 0)  # Green for staff detection
@@ -243,7 +268,7 @@ def add_stats_overlay(frame, fps, inference_time, detection_count):
         f"Inference: {inference_time:.1f}ms",
         f"Detections: {detection_count}",
         f"Resolution: {w}x{h}",
-        f"Channel: 18"
+        f"Channel: {CHANNEL}"
     ]
 
     y_offset = 30
@@ -412,6 +437,7 @@ def get_stats():
             # Model config
             "conf_threshold": CONF_THRESHOLD,
             "iou_threshold": IOU_THRESHOLD,
+            "channel": CHANNEL,
 
             # Timestamp
             "timestamp": datetime.now().isoformat()
@@ -432,14 +458,36 @@ def health():
 # =============================================================================
 
 def main():
-    """Main entry point"""
+    """Main entry point with argument parsing"""
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Staff Detector V4 Real-Time Detection Server')
+    parser.add_argument('--channel', type=int, default=DEFAULT_CHANNEL,
+                        help=f'NVR channel number (1-30, default: {DEFAULT_CHANNEL})')
+    parser.add_argument('--port', type=int, default=None,
+                        help='Server port (default: 5000 + channel)')
+    args = parser.parse_args()
+
+    # Validate channel
+    if args.channel < 1 or args.channel > 30:
+        print(f"ERROR: Channel must be between 1 and 30, got {args.channel}")
+        return 1
+
+    # Configure channel
+    set_channel(args.channel)
+
+    # Override port if specified
+    global SERVER_PORT
+    if args.port:
+        SERVER_PORT = args.port
+
     print("\n")
     print("*" * 60)
     print("*" + " " * 58 + "*")
     print("*" + "  Staff Detector V4 - Real-Time Detection Server".center(58) + "*")
     print("*" + " " * 58 + "*")
     print("*" * 60)
-    print(f"\nRTSP Source: Channel 18 ({RTSP_URL})")
+    print(f"\nChannel: {CHANNEL}")
+    print(f"RTSP: {RTSP_URL}")
     print(f"Server URL: http://{SERVER_HOST}:{SERVER_PORT}")
     print("\n")
 
