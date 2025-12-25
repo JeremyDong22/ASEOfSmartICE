@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Staff Detector V4 - Real-Time Detection</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0a0a0a;
+            color: #e0e0e0;
+            min-height: 100vh;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            padding: 20px 30px;
+            border-bottom: 2px solid #00ff88;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            font-weight: 600;
+            color: #00ff88;
+        }
+
+        .header .status {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        .status-indicator.connected {
+            background: #00ff88;
+            box-shadow: 0 0 10px #00ff88;
+        }
+
+        .status-indicator.disconnected {
+            background: #ff4444;
+            box-shadow: 0 0 10px #ff4444;
+            animation: none;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .main-container {
+            display: grid;
+            grid-template-columns: 1fr 400px;
+            gap: 20px;
+            padding: 20px;
+            max-width: 1800px;
+            margin: 0 auto;
+        }
+
+        .video-container {
+            background: #111;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid #333;
+        }
+
+        .video-container img {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        .video-header {
+            background: #1a1a2e;
+            padding: 12px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .video-header h2 {
+            font-size: 16px;
+            color: #00ff88;
+        }
+
+        .channel-badge {
+            background: #00ff88;
+            color: #000;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .stats-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid #333;
+        }
+
+        .stat-card h3 {
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #888;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #333;
+        }
+
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid #222;
+        }
+
+        .stat-row:last-child {
+            border-bottom: none;
+        }
+
+        .stat-label {
+            color: #888;
+            font-size: 14px;
+        }
+
+        .stat-value {
+            font-size: 18px;
+            font-weight: 600;
+            color: #fff;
+        }
+
+        .stat-value.highlight {
+            color: #00ff88;
+        }
+
+        .stat-value.warning {
+            color: #ffaa00;
+        }
+
+        .stat-value.danger {
+            color: #ff4444;
+        }
+
+        .big-stat {
+            text-align: center;
+            padding: 20px 0;
+        }
+
+        .big-stat .value {
+            font-size: 48px;
+            font-weight: 700;
+            color: #00ff88;
+            line-height: 1;
+        }
+
+        .big-stat .label {
+            font-size: 14px;
+            color: #888;
+            margin-top: 8px;
+        }
+
+        .big-stat .unit {
+            font-size: 24px;
+            color: #666;
+        }
+
+        .quality-bar {
+            height: 8px;
+            background: #222;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 8px;
+        }
+
+        .quality-bar .fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+
+        .quality-bar .fill.good {
+            background: linear-gradient(90deg, #00ff88, #00cc6a);
+        }
+
+        .quality-bar .fill.warning {
+            background: linear-gradient(90deg, #ffaa00, #cc8800);
+        }
+
+        .quality-bar .fill.bad {
+            background: linear-gradient(90deg, #ff4444, #cc0000);
+        }
+
+        .detection-count {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            text-align: center;
+        }
+
+        .detection-count .item {
+            background: #111;
+            padding: 15px;
+            border-radius: 8px;
+        }
+
+        .detection-count .item .value {
+            font-size: 28px;
+            font-weight: 700;
+        }
+
+        .detection-count .item .label {
+            font-size: 12px;
+            color: #666;
+            margin-top: 4px;
+        }
+
+        .model-info {
+            background: #111;
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 13px;
+        }
+
+        .model-info .row {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px 0;
+        }
+
+        .model-info .row .key {
+            color: #666;
+        }
+
+        .model-info .row .val {
+            color: #00ff88;
+        }
+
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #444;
+            font-size: 12px;
+        }
+
+        @media (max-width: 1200px) {
+            .main-container {
+                grid-template-columns: 1fr;
+            }
+
+            .stats-panel {
+                display: grid;
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (max-width: 768px) {
+            .stats-panel {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Staff Detector V4 - Real-Time Detection</h1>
+        <div class="status">
+            <div class="status-indicator" id="status-indicator"></div>
+            <span id="status-text">Connecting...</span>
+        </div>
+    </div>
+
+    <div class="main-container">
+        <div class="video-container">
+            <div class="video-header">
+                <h2>Live Feed - SmartICE NVR</h2>
+                <span class="channel-badge">Channel 18</span>
+            </div>
+            <img src="/video_feed" alt="Live Detection Feed" id="video-feed">
+        </div>
+
+        <div class="stats-panel">
+            <!-- Performance Stats -->
+            <div class="stat-card">
+                <h3>Performance</h3>
+                <div class="big-stat">
+                    <div class="value" id="fps-value">--</div>
+                    <div class="label">Frames Per Second</div>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Inference Time</span>
+                    <span class="stat-value" id="inference-time">-- ms</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Latency Grade</span>
+                    <span class="stat-value highlight" id="latency-grade">--</span>
+                </div>
+            </div>
+
+            <!-- Detection Stats -->
+            <div class="stat-card">
+                <h3>Detection</h3>
+                <div class="detection-count">
+                    <div class="item">
+                        <div class="value highlight" id="current-detections">0</div>
+                        <div class="label">Current</div>
+                    </div>
+                    <div class="item">
+                        <div class="value" id="avg-detections">0</div>
+                        <div class="label">Avg/Frame</div>
+                    </div>
+                    <div class="item">
+                        <div class="value" id="total-frames">0</div>
+                        <div class="label">Frames</div>
+                    </div>
+                </div>
+                <div class="stat-row" style="margin-top: 15px;">
+                    <span class="stat-label">Avg Confidence</span>
+                    <span class="stat-value highlight" id="avg-confidence">--%</span>
+                </div>
+                <div class="quality-bar">
+                    <div class="fill good" id="confidence-bar" style="width: 0%;"></div>
+                </div>
+            </div>
+
+            <!-- Video Quality -->
+            <div class="stat-card">
+                <h3>Video Quality</h3>
+                <div class="stat-row">
+                    <span class="stat-label">Resolution</span>
+                    <span class="stat-value" id="resolution">--</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Stream FPS</span>
+                    <span class="stat-value" id="stream-fps">--</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Est. Bitrate</span>
+                    <span class="stat-value" id="bitrate">-- kbps</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Frame Size</span>
+                    <span class="stat-value" id="frame-size">-- KB</span>
+                </div>
+            </div>
+
+            <!-- Health Stats -->
+            <div class="stat-card">
+                <h3>System Health</h3>
+                <div class="stat-row">
+                    <span class="stat-label">Frame Drops</span>
+                    <span class="stat-value" id="frame-drops">0</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Drop Rate</span>
+                    <span class="stat-value" id="drop-rate">0%</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Uptime</span>
+                    <span class="stat-value" id="uptime">0s</span>
+                </div>
+                <div class="model-info" style="margin-top: 15px;">
+                    <div class="row">
+                        <span class="key">Model</span>
+                        <span class="val">YOLO11n</span>
+                    </div>
+                    <div class="row">
+                        <span class="key">Conf Threshold</span>
+                        <span class="val" id="conf-threshold">0.5</span>
+                    </div>
+                    <div class="row">
+                        <span class="key">IOU Threshold</span>
+                        <span class="val" id="iou-threshold">0.45</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="footer">
+        SmartICE Staff Detection System | YOLO11n V4 Model | Channel 18 Live Feed
+    </div>
+
+    <script>
+        // Update stats every 500ms
+        function updateStats() {
+            fetch('/stats')
+                .then(response => response.json())
+                .then(data => {
+                    // Update status indicator
+                    const indicator = document.getElementById('status-indicator');
+                    const statusText = document.getElementById('status-text');
+
+                    if (data.connection_status === 'connected') {
+                        indicator.className = 'status-indicator connected';
+                        statusText.textContent = 'Live';
+                    } else {
+                        indicator.className = 'status-indicator disconnected';
+                        statusText.textContent = data.connection_status;
+                    }
+
+                    // Performance stats
+                    document.getElementById('fps-value').textContent = data.fps.toFixed(1);
+                    document.getElementById('inference-time').textContent = data.inference_time_ms + ' ms';
+
+                    // Latency grade
+                    const latencyGrade = document.getElementById('latency-grade');
+                    if (data.inference_time_ms < 10) {
+                        latencyGrade.textContent = 'Excellent';
+                        latencyGrade.className = 'stat-value highlight';
+                    } else if (data.inference_time_ms < 30) {
+                        latencyGrade.textContent = 'Good';
+                        latencyGrade.className = 'stat-value highlight';
+                    } else if (data.inference_time_ms < 50) {
+                        latencyGrade.textContent = 'Acceptable';
+                        latencyGrade.className = 'stat-value warning';
+                    } else {
+                        latencyGrade.textContent = 'Slow';
+                        latencyGrade.className = 'stat-value danger';
+                    }
+
+                    // Detection stats
+                    document.getElementById('current-detections').textContent = data.current_detections;
+                    document.getElementById('avg-detections').textContent = data.avg_detections.toFixed(1);
+                    document.getElementById('total-frames').textContent = formatNumber(data.total_frames);
+                    document.getElementById('avg-confidence').textContent = data.avg_confidence + '%';
+
+                    // Confidence bar
+                    const confBar = document.getElementById('confidence-bar');
+                    confBar.style.width = data.avg_confidence + '%';
+                    if (data.avg_confidence >= 80) {
+                        confBar.className = 'fill good';
+                    } else if (data.avg_confidence >= 60) {
+                        confBar.className = 'fill warning';
+                    } else {
+                        confBar.className = 'fill bad';
+                    }
+
+                    // Video quality
+                    document.getElementById('resolution').textContent = data.resolution;
+                    document.getElementById('stream-fps').textContent = data.stream_fps;
+                    document.getElementById('bitrate').textContent = formatNumber(data.estimated_bitrate_kbps) + ' kbps';
+                    document.getElementById('frame-size').textContent = data.avg_frame_size_kb + ' KB';
+
+                    // Health stats
+                    document.getElementById('frame-drops').textContent = data.frame_drops;
+                    document.getElementById('drop-rate').textContent = data.drop_rate_percent + '%';
+                    document.getElementById('uptime').textContent = formatTime(data.uptime_seconds);
+
+                    // Model config
+                    document.getElementById('conf-threshold').textContent = data.conf_threshold;
+                    document.getElementById('iou-threshold').textContent = data.iou_threshold;
+                })
+                .catch(err => {
+                    console.error('Stats fetch error:', err);
+                    document.getElementById('status-indicator').className = 'status-indicator disconnected';
+                    document.getElementById('status-text').textContent = 'Error';
+                });
+        }
+
+        function formatNumber(num) {
+            if (num >= 1000000) {
+                return (num / 1000000).toFixed(1) + 'M';
+            } else if (num >= 1000) {
+                return (num / 1000).toFixed(1) + 'K';
+            }
+            return num.toString();
+        }
+
+        function formatTime(seconds) {
+            if (seconds < 60) return Math.floor(seconds) + 's';
+            if (seconds < 3600) return Math.floor(seconds / 60) + 'm ' + Math.floor(seconds % 60) + 's';
+            const hours = Math.floor(seconds / 3600);
+            const mins = Math.floor((seconds % 3600) / 60);
+            return hours + 'h ' + mins + 'm';
+        }
+
+        // Start polling
+        setInterval(updateStats, 500);
+        updateStats();
+    </script>
+</body>
+</html>
