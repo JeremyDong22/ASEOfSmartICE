@@ -1,0 +1,12 @@
+# V5 Staff/Customer Detection Dataset
+# Generated: 2025-12-26
+# Classes: staff (0), customer (1)
+
+path: /Users/jeremydong/Desktop/Smartice/APPs/ASEOfSmartICE/train-model/model_v5/dataset_detection
+train: images/train
+val: images/val
+
+nc: 2
+names:
+  0: staff
+  1: customer

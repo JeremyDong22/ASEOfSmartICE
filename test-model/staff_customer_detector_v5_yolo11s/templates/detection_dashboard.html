@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Staff/Customer Detection V5 - Dashboard</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #1a1a2e;
+            color: #fff;
+            min-height: 100vh;
+        }
+        .header {
+            background: linear-gradient(135deg, #16213e 0%, #0f3460 100%);
+            padding: 15px 25px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 3px solid #00ff88;
+        }
+        .header h1 { font-size: 22px; color: #00ff88; }
+        .header .version { color: #888; font-size: 14px; }
+
+        .main {
+            display: flex;
+            padding: 20px;
+            gap: 20px;
+        }
+
+        .video-container {
+            flex: 2;
+            background: #0a0a0a;
+            border-radius: 10px;
+            overflow: hidden;
+            position: relative;
+        }
+        .video-container img {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+        .video-label {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0,255,136,0.9);
+            color: #000;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 12px;
+        }
+
+        .sidebar {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .card {
+            background: linear-gradient(135deg, #16213e 0%, #0f3460 100%);
+            border-radius: 10px;
+            padding: 15px;
+            border-left: 4px solid #00ff88;
+        }
+        .card.staff { border-left-color: #00ff88; }
+        .card.customer { border-left-color: #ff4444; }
+        .card.performance { border-left-color: #00d4ff; }
+        .card.health { border-left-color: #ffaa00; }
+
+        .card-title {
+            font-size: 12px;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 10px;
+        }
+
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        .stat-row:last-child { border-bottom: none; }
+
+        .stat-label { color: #aaa; font-size: 13px; }
+        .stat-value {
+            font-size: 16px;
+            font-weight: bold;
+            color: #fff;
+        }
+        .stat-value.good { color: #00ff88; }
+        .stat-value.warning { color: #ffaa00; }
+        .stat-value.bad { color: #ff4444; }
+        .stat-value.staff { color: #00ff88; }
+        .stat-value.customer { color: #ff4444; }
+
+        .big-number {
+            font-size: 48px;
+            font-weight: bold;
+            text-align: center;
+            padding: 10px 0;
+        }
+        .big-number.staff { color: #00ff88; }
+        .big-number.customer { color: #ff4444; }
+
+        .legend {
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            padding: 15px;
+            background: #0a0a0a;
+            border-radius: 10px;
+            margin-top: 15px;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+        }
+        .legend-color.staff { background: #00ff88; }
+        .legend-color.customer { background: #ff4444; }
+
+        .uptime {
+            text-align: center;
+            color: #888;
+            font-size: 12px;
+            padding: 10px;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .live-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            background: #ff0000;
+            border-radius: 50%;
+            margin-right: 8px;
+            animation: pulse 1s infinite;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1><span class="live-indicator"></span>Staff/Customer Detection V5</h1>
+        <div class="version">YOLO11s Two-Class Detection | Gemini-Optimized</div>
+    </div>
+
+    <div class="main">
+        <div class="video-container">
+            <img src="/video_feed" alt="Live Feed">
+            <div class="video-label">LIVE</div>
+        </div>
+
+        <div class="sidebar">
+            <div class="card staff">
+                <div class="card-title">Staff Detected</div>
+                <div class="big-number staff" id="staff-count">0</div>
+                <div class="stat-row">
+                    <span class="stat-label">Avg Confidence</span>
+                    <span class="stat-value staff" id="staff-conf">0%</span>
+                </div>
+            </div>
+
+            <div class="card customer">
+                <div class="card-title">Customers Detected</div>
+                <div class="big-number customer" id="customer-count">0</div>
+                <div class="stat-row">
+                    <span class="stat-label">Avg Confidence</span>
+                    <span class="stat-value customer" id="customer-conf">0%</span>
+                </div>
+            </div>
+
+            <div class="card performance">
+                <div class="card-title">Performance</div>
+                <div class="stat-row">
+                    <span class="stat-label">FPS</span>
+                    <span class="stat-value" id="fps">0</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Inference Time</span>
+                    <span class="stat-value" id="inference-time">0ms</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Resolution</span>
+                    <span class="stat-value" id="resolution">N/A</span>
+                </div>
+            </div>
+
+            <div class="card health">
+                <div class="card-title">Stream Health</div>
+                <div class="stat-row">
+                    <span class="stat-label">Stream FPS</span>
+                    <span class="stat-value" id="stream-fps">0</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Frame Drops</span>
+                    <span class="stat-value" id="frame-drops">0</span>
+                </div>
+            </div>
+
+            <div class="legend">
+                <div class="legend-item">
+                    <div class="legend-color staff"></div>
+                    <span>Staff</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color customer"></div>
+                    <span>Customer</span>
+                </div>
+            </div>
+
+            <div class="uptime">
+                Uptime: <span id="uptime">0:00:00</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function formatUptime(seconds) {
+            const hours = Math.floor(seconds / 3600);
+            const mins = Math.floor((seconds % 3600) / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        function updateStats() {
+            fetch('/api/stats')
+                .then(response => response.json())
+                .then(data => {
+                    // Counts
+                    document.getElementById('staff-count').textContent = data.staff_count;
+                    document.getElementById('customer-count').textContent = data.customer_count;
+
+                    // Confidence
+                    document.getElementById('staff-conf').textContent = data.avg_staff_conf.toFixed(0) + '%';
+                    document.getElementById('customer-conf').textContent = data.avg_customer_conf.toFixed(0) + '%';
+
+                    // Performance
+                    const fpsEl = document.getElementById('fps');
+                    fpsEl.textContent = data.fps.toFixed(1);
+                    fpsEl.className = 'stat-value ' + (data.fps >= 30 ? 'good' : data.fps >= 15 ? 'warning' : 'bad');
+
+                    const inferenceEl = document.getElementById('inference-time');
+                    inferenceEl.textContent = data.inference_time_ms.toFixed(1) + 'ms';
+                    inferenceEl.className = 'stat-value ' + (data.inference_time_ms <= 30 ? 'good' : data.inference_time_ms <= 60 ? 'warning' : 'bad');
+
+                    document.getElementById('resolution').textContent = data.resolution;
+
+                    // Health
+                    document.getElementById('stream-fps').textContent = data.stream_fps;
+                    document.getElementById('frame-drops').textContent = data.frame_drops;
+
+                    // Uptime
+                    document.getElementById('uptime').textContent = formatUptime(data.uptime_seconds);
+                })
+                .catch(err => console.error('Stats update failed:', err));
+        }
+
+        // Update stats every 500ms
+        setInterval(updateStats, 500);
+        updateStats();
+    </script>
+</body>
+</html>
