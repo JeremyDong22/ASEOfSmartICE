@@ -1,0 +1,31 @@
+{
+  "name": "staff-customer-detector-dashboard",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Vue 3 + TypeScript Dashboard for Staff/Customer Detector V5",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc && vite build",
+    "preview": "vite preview",
+    "type-check": "vue-tsc --noEmit",
+    "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts --fix --ignore-path .gitignore"
+  },
+  "dependencies": {
+    "vue": "^3.4.15",
+    "vue-router": "^4.2.5",
+    "pinia": "^2.1.7",
+    "element-plus": "^2.5.6",
+    "@element-plus/icons-vue": "^2.3.1",
+    "vue-virtual-scroller": "^2.0.0-beta.8",
+    "simple-peer": "^9.11.1",
+    "axios": "^1.6.5"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.0.3",
+    "typescript": "~5.3.3",
+    "vite": "^5.0.11",
+    "vue-tsc": "^2.0.0",
+    "@types/node": "^20.11.5",
+    "@types/simple-peer": "^9.11.8"
+  }
+}
