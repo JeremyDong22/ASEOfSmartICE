@@ -1,0 +1,209 @@
+cmake_minimum_required(VERSION 3.18)
+project(SmartICEBackend VERSION 1.0.0 LANGUAGES CXX)
+
+# Set C++ standard
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+# Export compile commands for IDE integration
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+# Build type
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release)
+endif()
+
+# Compiler flags
+set(CMAKE_CXX_FLAGS_DEBUG "-g -O0 -Wall -Wextra")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
+
+# Find threads
+find_package(Threads REQUIRED)
+
+# Include FetchContent for downloading dependencies
+include(FetchContent)
+
+# ============================================================================
+# Dependencies
+# ============================================================================
+
+# spdlog (logging library)
+FetchContent_Declare(
+    spdlog
+    GIT_REPOSITORY https://github.com/gabime/spdlog.git
+    GIT_TAG v1.12.0
+)
+FetchContent_MakeAvailable(spdlog)
+
+# nlohmann_json (JSON library)
+FetchContent_Declare(
+    json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG v3.11.3
+)
+FetchContent_MakeAvailable(json)
+
+# nghttp2 (HTTP/2 library) - system package
+find_package(PkgConfig)
+if(PKG_CONFIG_FOUND)
+    pkg_check_modules(NGHTTP2 libnghttp2)
+endif()
+
+# libevent (Event loop)
+if(PKG_CONFIG_FOUND)
+    pkg_check_modules(LIBEVENT libevent)
+endif()
+
+# FFmpeg (video decoding)
+if(PKG_CONFIG_FOUND)
+    pkg_check_modules(AVCODEC libavcodec REQUIRED)
+    pkg_check_modules(AVFORMAT libavformat REQUIRED)
+    pkg_check_modules(AVUTIL libavutil REQUIRED)
+    pkg_check_modules(SWSCALE libswscale REQUIRED)
+endif()
+
+# OpenCV (image processing)
+find_package(OpenCV REQUIRED)
+
+# PyTorch/libtorch (YOLO inference)
+set(CMAKE_PREFIX_PATH "/home/smartice001/.local/lib/python3.12/site-packages/torch/share/cmake")
+find_package(Torch REQUIRED)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
+
+# CUDA (optional - for NVDEC)
+find_package(CUDA QUIET)
+if(CUDA_FOUND)
+    message(STATUS "CUDA found: ${CUDA_VERSION}")
+    enable_language(CUDA)
+else()
+    message(WARNING "CUDA not found - NVDEC support disabled")
+endif()
+
+# ============================================================================
+# Main library
+# ============================================================================
+
+# Header files
+set(HEADER_FILES
+    include/http_server.h
+    include/video_decoder.h
+    include/inference_engine.h
+    include/camera_manager.h
+    include/thread_pool.h
+    include/utils.h
+)
+
+# Source files
+set(SOURCE_FILES
+    src/http_server.cpp
+    src/video_decoder.cpp
+    src/inference_engine.cpp
+    src/camera_manager.cpp
+    src/thread_pool.cpp
+    src/utils.cpp
+)
+
+# Create static library
+add_library(smartice_backend STATIC
+    ${SOURCE_FILES}
+    ${HEADER_FILES}
+)
+
+# Include directories
+target_include_directories(smartice_backend PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+# Link libraries
+target_link_libraries(smartice_backend PUBLIC
+    Threads::Threads
+    spdlog::spdlog
+    nlohmann_json::nlohmann_json
+    ${TORCH_LIBRARIES}
+    ${OpenCV_LIBS}
+)
+
+# Link system dependencies if available
+if(NGHTTP2_FOUND)
+    target_include_directories(smartice_backend PUBLIC ${NGHTTP2_INCLUDE_DIRS})
+    target_link_libraries(smartice_backend PUBLIC ${NGHTTP2_LIBRARIES})
+    target_compile_definitions(smartice_backend PUBLIC HAS_NGHTTP2)
+endif()
+
+if(LIBEVENT_FOUND)
+    target_include_directories(smartice_backend PUBLIC ${LIBEVENT_INCLUDE_DIRS})
+    target_link_libraries(smartice_backend PUBLIC ${LIBEVENT_LIBRARIES})
+    target_compile_definitions(smartice_backend PUBLIC HAS_LIBEVENT)
+endif()
+
+if(AVCODEC_FOUND AND AVFORMAT_FOUND AND AVUTIL_FOUND AND SWSCALE_FOUND)
+    target_include_directories(smartice_backend PUBLIC
+        ${AVCODEC_INCLUDE_DIRS}
+        ${AVFORMAT_INCLUDE_DIRS}
+        ${AVUTIL_INCLUDE_DIRS}
+        ${SWSCALE_INCLUDE_DIRS}
+    )
+    target_link_libraries(smartice_backend PUBLIC
+        ${AVCODEC_LIBRARIES}
+        ${AVFORMAT_LIBRARIES}
+        ${AVUTIL_LIBRARIES}
+        ${SWSCALE_LIBRARIES}
+    )
+    target_compile_definitions(smartice_backend PUBLIC HAS_FFMPEG)
+endif()
+
+if(CUDA_FOUND)
+    target_include_directories(smartice_backend PUBLIC ${CUDA_INCLUDE_DIRS})
+    target_link_libraries(smartice_backend PUBLIC ${CUDA_LIBRARIES})
+    target_compile_definitions(smartice_backend PUBLIC HAS_CUDA)
+endif()
+
+# ============================================================================
+# Main executable
+# ============================================================================
+
+add_executable(smartice_server src/main.cpp)
+target_link_libraries(smartice_server PRIVATE smartice_backend)
+
+# ============================================================================
+# Tests
+# ============================================================================
+
+enable_testing()
+add_subdirectory(tests)
+
+# ============================================================================
+# Installation
+# ============================================================================
+
+install(TARGETS smartice_server smartice_backend
+    RUNTIME DESTINATION bin
+    LIBRARY DESTINATION lib
+    ARCHIVE DESTINATION lib
+)
+
+install(FILES ${HEADER_FILES} DESTINATION include/smartice)
+
+# ============================================================================
+# Summary
+# ============================================================================
+
+message(STATUS "")
+message(STATUS "==================================================")
+message(STATUS "SmartICE Backend Configuration Summary")
+message(STATUS "==================================================")
+message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
+message(STATUS "C++ standard: ${CMAKE_CXX_STANDARD}")
+message(STATUS "")
+message(STATUS "Dependencies:")
+message(STATUS "  spdlog:       ${spdlog_VERSION} (FetchContent)")
+message(STATUS "  nlohmann_json: 3.11.3 (FetchContent)")
+message(STATUS "  nghttp2:      ${NGHTTP2_FOUND}")
+message(STATUS "  libevent:     ${LIBEVENT_FOUND}")
+message(STATUS "  FFmpeg:       ${AVCODEC_FOUND}")
+message(STATUS "  OpenCV:       ${OpenCV_VERSION}")
+message(STATUS "  PyTorch:      ${Torch_VERSION}")
+message(STATUS "  CUDA:         ${CUDA_FOUND}")
+message(STATUS "==================================================")
+message(STATUS "")
