@@ -1,0 +1,100 @@
+###
+# V5 Testing Dashboard - API Tests
+# Use with REST Client extension in VS Code or similar HTTP clients
+###
+
+@baseUrl = http://localhost:3000/api
+
+### 1. System Health Check
+GET {{baseUrl}}/system/health
+
+### 2. System Information
+GET {{baseUrl}}/system/info
+
+### 3. GPU Statistics
+GET {{baseUrl}}/system/gpu
+
+### 4. CPU Statistics
+GET {{baseUrl}}/system/cpu
+
+### 5. Memory Statistics
+GET {{baseUrl}}/system/memory
+
+### 6. Get Active Cameras
+GET {{baseUrl}}/camera/status
+
+### 7. Start Camera 1
+POST {{baseUrl}}/camera/start
+Content-Type: application/json
+
+{
+  "channel": 1
+}
+
+### 8. Start Camera 5
+POST {{baseUrl}}/camera/start
+Content-Type: application/json
+
+{
+  "channel": 5
+}
+
+### 9. Start Camera 10
+POST {{baseUrl}}/camera/start
+Content-Type: application/json
+
+{
+  "channel": 10
+}
+
+### 10. Get All Statistics
+GET {{baseUrl}}/stats
+
+### 11. Get Stats Summary
+GET {{baseUrl}}/stats/summary
+
+### 12. Get Camera 1 Stats
+GET {{baseUrl}}/stats/camera/1
+
+### 13. Get Camera 5 Stats
+GET {{baseUrl}}/stats/camera/5
+
+### 14. Stop Camera 1
+POST {{baseUrl}}/camera/stop
+Content-Type: application/json
+
+{
+  "channel": 1
+}
+
+### 15. Stop Camera 5
+POST {{baseUrl}}/camera/stop
+Content-Type: application/json
+
+{
+  "channel": 5
+}
+
+### 16. Adjust FPS (Not Yet Implemented)
+POST {{baseUrl}}/camera/fps
+Content-Type: application/json
+
+{
+  "channel": 1,
+  "fps": 20
+}
+
+### 17. Try Invalid Channel (Should Fail)
+POST {{baseUrl}}/camera/start
+Content-Type: application/json
+
+{
+  "channel": 99
+}
+
+### 18. Real-time Stats Stream (SSE)
+# Note: Use EventSource in JavaScript or curl -N
+GET {{baseUrl}}/stats/realtime
+
+### 19. Root API Info
+GET {{baseUrl}}

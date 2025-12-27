@@ -1,0 +1,27 @@
+{
+  "name": "v5-testing-dashboard-frontend",
+  "version": "1.0.0",
+  "description": "TypeScript frontend for V5 YOLO11s testing dashboard",
+  "scripts": {
+    "build": "tsc && npm run bundle",
+    "bundle": "esbuild src/app.ts --bundle --outfile=public/app.js --sourcemap",
+    "watch": "esbuild src/app.ts --bundle --outfile=public/app.js --sourcemap --watch",
+    "dev": "npm run watch"
+  },
+  "keywords": [
+    "yolo",
+    "surveillance",
+    "typescript",
+    "testing"
+  ],
+  "author": "SmartICE Team",
+  "license": "MIT",
+  "dependencies": {
+    "chart.js": "^4.4.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.6",
+    "typescript": "^5.3.3",
+    "esbuild": "^0.19.11"
+  }
+}

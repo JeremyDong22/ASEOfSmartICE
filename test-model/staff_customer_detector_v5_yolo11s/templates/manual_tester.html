@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manual Camera Capacity Tester</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0a0e1a;
+            color: #e0e0e0;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+            padding: 20px;
+            background: linear-gradient(135deg, #1a1f3a 0%, #2d3561 100%);
+            border-radius: 12px;
+        }
+
+        .header h1 {
+            font-size: 2em;
+            color: #00ff00;
+            text-shadow: 0 0 20px rgba(0, 255, 0, 0.5);
+        }
+
+        .controls {
+            background: #1a1f3a;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+        }
+
+        .control-row {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        input[type="number"] {
+            padding: 10px;
+            font-size: 1em;
+            border: 2px solid #00ff00;
+            background: #0d1118;
+            color: #00ff00;
+            border-radius: 6px;
+            width: 100px;
+        }
+
+        button {
+            padding: 10px 20px;
+            font-size: 1em;
+            font-weight: bold;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-start {
+            background: #00ff00;
+            color: #000;
+        }
+
+        .btn-start:hover {
+            background: #00cc00;
+            transform: translateY(-2px);
+        }
+
+        .btn-stop {
+            background: #ff0000;
+            color: #fff;
+        }
+
+        .btn-stop:hover {
+            background: #cc0000;
+            transform: translateY(-2px);
+        }
+
+        .btn-stop-all {
+            background: #ff6600;
+            color: #fff;
+        }
+
+        .system-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: #1a1f3a;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #00ff00;
+        }
+
+        .stat-card h3 {
+            font-size: 0.9em;
+            color: #808080;
+            margin-bottom: 10px;
+        }
+
+        .stat-value {
+            font-size: 1.8em;
+            font-weight: bold;
+            color: #00ff00;
+        }
+
+        .stat-detail {
+            font-size: 0.85em;
+            color: #b0b0b0;
+            margin-top: 5px;
+        }
+
+        .warning {
+            color: #ffaa00 !important;
+        }
+
+        .danger {
+            color: #ff0000 !important;
+        }
+
+        .camera-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .camera-card {
+            background: #1a1f3a;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+        }
+
+        .camera-header {
+            padding: 12px;
+            background: linear-gradient(135deg, #2d3561 0%, #3a4570 100%);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .camera-title {
+            font-size: 1.1em;
+            font-weight: bold;
+            color: #00ff00;
+        }
+
+        .video-container {
+            position: relative;
+            width: 100%;
+            padding-top: 56.25%;
+            background: #000;
+        }
+
+        .video-stream {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        .camera-stats {
+            padding: 12px;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            font-size: 0.85em;
+        }
+
+        .cam-stat {
+            text-align: center;
+            padding: 6px;
+            background: #0d1118;
+            border-radius: 6px;
+        }
+
+        .cam-stat-label {
+            color: #808080;
+            font-size: 0.85em;
+        }
+
+        .cam-stat-value {
+            color: #00ff00;
+            font-weight: bold;
+            font-size: 1.1em;
+        }
+
+        .gpu-cores {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
+            gap: 5px;
+            margin-top: 8px;
+        }
+
+        .core-bar {
+            height: 30px;
+            background: #0d1118;
+            border-radius: 4px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .core-fill {
+            height: 100%;
+            background: linear-gradient(to top, #00ff00, #00cc00);
+            transition: width 0.3s;
+        }
+
+        .core-label {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 0.7em;
+            color: #fff;
+            font-weight: bold;
+            text-shadow: 0 0 3px #000;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🎥 Manual Camera Capacity Tester</h1>
+        <p>Add cameras one by one and monitor system performance</p>
+    </div>
+
+    <div class="controls">
+        <div class="control-row">
+            <label>Channel:</label>
+            <input type="number" id="channelInput" min="1" max="30" value="1">
+            <button class="btn-start" onclick="startCamera()">▶ Start Camera</button>
+            <button class="btn-stop" onclick="stopCamera()">⏹ Stop Camera</button>
+            <button class="btn-stop-all" onclick="stopAllCameras()">⏹ Stop All</button>
+        </div>
+        <div style="margin-top: 10px; color: #808080; font-size: 0.9em;">
+            <span id="activeCameraCount">0</span> camera(s) active
+        </div>
+    </div>
+
+    <div class="system-stats">
+        <div class="stat-card">
+            <h3>🖥️ CPU Usage</h3>
+            <div class="stat-value" id="cpuUsage">-</div>
+            <div class="stat-detail" id="cpuTemp">Temp: -</div>
+        </div>
+
+        <div class="stat-card">
+            <h3>🎮 GPU Usage</h3>
+            <div class="stat-value" id="gpuUsage">-</div>
+            <div class="stat-detail" id="gpuTemp">Temp: - | Power: -</div>
+        </div>
+
+        <div class="stat-card">
+            <h3>💾 Memory</h3>
+            <div class="stat-value" id="memoryUsage">-</div>
+            <div class="stat-detail" id="memoryDetail">- / - GB</div>
+        </div>
+
+        <div class="stat-card">
+            <h3>🎬 Total FPS</h3>
+            <div class="stat-value" id="totalFps">-</div>
+            <div class="stat-detail">Combined processing rate</div>
+        </div>
+
+        <div class="stat-card">
+            <h3>📹 Active Cameras</h3>
+            <div class="stat-value" id="activeCameras">0</div>
+            <div class="stat-detail">Simultaneous streams</div>
+        </div>
+
+        <div class="stat-card">
+            <h3>🎯 GPU Memory</h3>
+            <div class="stat-value" id="gpuMemory">-</div>
+            <div class="stat-detail" id="gpuMemoryDetail">- / - MB</div>
+        </div>
+    </div>
+
+    <div style="background: #1a1f3a; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+        <h3 style="margin-bottom: 10px; color: #00ff00;">CPU Cores</h3>
+        <div class="gpu-cores" id="cpuCores"></div>
+    </div>
+
+    <div class="camera-grid" id="cameraGrid"></div>
+
+    <script>
+        let activeCameras = new Set();
+
+        async function startCamera() {
+            const channel = parseInt(document.getElementById('channelInput').value);
+
+            if (activeCameras.has(channel)) {
+                alert(`Camera ${channel} is already active!`);
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/start_camera', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({channel: channel})
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    activeCameras.add(channel);
+                    addCameraCard(channel);
+                    document.getElementById('channelInput').value = channel + 1;
+                } else {
+                    alert(`Error: ${data.error}`);
+                }
+            } catch (error) {
+                alert(`Failed to start camera: ${error}`);
+            }
+        }
+
+        async function stopCamera() {
+            const channel = parseInt(document.getElementById('channelInput').value);
+
+            if (!activeCameras.has(channel)) {
+                alert(`Camera ${channel} is not active!`);
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/stop_camera', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({channel: channel})
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    activeCameras.delete(channel);
+                    removeCameraCard(channel);
+                }
+            } catch (error) {
+                alert(`Failed to stop camera: ${error}`);
+            }
+        }
+
+        async function stopAllCameras() {
+            const cameras = Array.from(activeCameras);
+            for (const channel of cameras) {
+                await fetch('/api/stop_camera', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({channel: channel})
+                });
+                activeCameras.delete(channel);
+                removeCameraCard(channel);
+            }
+        }
+
+        function addCameraCard(channel) {
+            const grid = document.getElementById('cameraGrid');
+            const card = document.createElement('div');
+            card.className = 'camera-card';
+            card.id = `camera-${channel}`;
+
+            card.innerHTML = `
+                <div class="camera-header">
+                    <div class="camera-title">Channel ${channel} <span id="status-${channel}" style="font-size: 0.8em; color: #ffaa00;">⏳ Connecting...</span></div>
+                    <button class="btn-stop" onclick="stopCameraById(${channel})">⏹</button>
+                </div>
+                <div class="video-container">
+                    <img class="video-stream" src="/video_feed/${channel}" alt="Camera ${channel}"
+                         onerror="this.style.display='none'">
+                    <div class="loading" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #ffaa00;">
+                        Connecting...
+                    </div>
+                </div>
+                <div class="camera-stats">
+                    <div class="cam-stat">
+                        <div class="cam-stat-label">FPS</div>
+                        <div class="cam-stat-value" id="fps-${channel}">-</div>
+                    </div>
+                    <div class="cam-stat">
+                        <div class="cam-stat-label">Inference</div>
+                        <div class="cam-stat-value" id="inference-${channel}">-</div>
+                    </div>
+                    <div class="cam-stat">
+                        <div class="cam-stat-label">Detections</div>
+                        <div class="cam-stat-value" id="detections-${channel}">-</div>
+                    </div>
+                </div>
+            `;
+
+            grid.appendChild(card);
+        }
+
+        function removeCameraCard(channel) {
+            const card = document.getElementById(`camera-${channel}`);
+            if (card) card.remove();
+        }
+
+        async function stopCameraById(channel) {
+            document.getElementById('channelInput').value = channel;
+            await stopCamera();
+        }
+
+        async function updateStats() {
+            try {
+                const response = await fetch('/api/stats');
+                const data = await response.json();
+
+                // System stats
+                const cpu = data.system.cpu.overall;
+                document.getElementById('cpuUsage').textContent = cpu.toFixed(1) + '%';
+                document.getElementById('cpuUsage').className = 'stat-value' + (cpu > 90 ? ' danger' : cpu > 75 ? ' warning' : '');
+
+                if (data.system.cpu.temperature_c) {
+                    document.getElementById('cpuTemp').textContent = `Temp: ${data.system.cpu.temperature_c.toFixed(1)}°C`;
+                }
+
+                // GPU stats
+                if (data.system.gpu) {
+                    const gpu = data.system.gpu.utilization;
+                    document.getElementById('gpuUsage').textContent = gpu.toFixed(1) + '%';
+                    document.getElementById('gpuUsage').className = 'stat-value' + (gpu > 95 ? ' danger' : gpu > 85 ? ' warning' : '');
+                    document.getElementById('gpuTemp').textContent = `Temp: ${data.system.gpu.temperature_c}°C | Power: ${data.system.gpu.power_draw_w.toFixed(0)}W`;
+                    document.getElementById('gpuMemory').textContent = `${data.system.gpu.memory_used_mb.toFixed(0)} MB`;
+                    document.getElementById('gpuMemoryDetail').textContent = `${data.system.gpu.memory_used_mb.toFixed(0)} / ${data.system.gpu.memory_total_mb.toFixed(0)} MB`;
+                }
+
+                // Memory
+                const mem = data.system.memory.percent;
+                document.getElementById('memoryUsage').textContent = mem.toFixed(1) + '%';
+                document.getElementById('memoryUsage').className = 'stat-value' + (mem > 90 ? ' danger' : mem > 75 ? ' warning' : '');
+                document.getElementById('memoryDetail').textContent = `${data.system.memory.used_gb} / ${data.system.memory.total_gb} GB`;
+
+                // CPU cores
+                const coresDiv = document.getElementById('cpuCores');
+                if (data.system.cpu.per_core && data.system.cpu.per_core.length > 0) {
+                    if (coresDiv.children.length === 0) {
+                        data.system.cpu.per_core.forEach((_, i) => {
+                            const bar = document.createElement('div');
+                            bar.className = 'core-bar';
+                            bar.innerHTML = `<div class="core-fill" id="core-${i}"></div><div class="core-label">${i+1}</div>`;
+                            coresDiv.appendChild(bar);
+                        });
+                    }
+                    data.system.cpu.per_core.forEach((usage, i) => {
+                        const fill = document.getElementById(`core-${i}`);
+                        if (fill) fill.style.width = usage + '%';
+                    });
+                }
+
+                // Summary
+                document.getElementById('totalFps').textContent = data.summary.total_fps.toFixed(1);
+                document.getElementById('activeCameras').textContent = data.summary.active_cameras;
+                document.getElementById('activeCameraCount').textContent = data.summary.active_cameras;
+
+                // Camera stats
+                data.cameras.forEach(cam => {
+                    const fpsEl = document.getElementById(`fps-${cam.channel}`);
+                    const infEl = document.getElementById(`inference-${cam.channel}`);
+                    const detEl = document.getElementById(`detections-${cam.channel}`);
+                    const statusEl = document.getElementById(`status-${cam.channel}`);
+
+                    if (fpsEl) fpsEl.textContent = cam.current_fps.toFixed(1);
+                    if (infEl) infEl.textContent = cam.current_inference_ms.toFixed(1) + 'ms';
+                    if (detEl) detEl.textContent = cam.current_detections;
+
+                    // Update connection status
+                    if (statusEl) {
+                        if (cam.connection_status === 'connected') {
+                            statusEl.innerHTML = '<span style="color: #00ff00;">✓ Connected</span>';
+                        } else if (cam.connection_status === 'connecting') {
+                            statusEl.innerHTML = '<span style="color: #ffaa00;">⏳ Connecting...</span>';
+                        } else if (cam.connection_status === 'failed') {
+                            statusEl.innerHTML = '<span style="color: #ff0000;">✗ Failed</span>';
+                        }
+                    }
+                });
+
+            } catch (error) {
+                console.error('Stats update failed:', error);
+            }
+        }
+
+        // Update stats every second
+        setInterval(updateStats, 1000);
+        updateStats();
+    </script>
+</body>
+</html>

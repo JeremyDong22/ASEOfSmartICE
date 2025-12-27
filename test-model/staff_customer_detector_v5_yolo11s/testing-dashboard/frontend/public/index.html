@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>V5 YOLO11s Testing Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-content">
+            <h1 class="header-title">V5 YOLO11s Testing Dashboard</h1>
+            <p class="header-subtitle">Real-time Staff & Customer Detection Performance Monitor</p>
+            <div class="header-status">
+                <span class="status-indicator" id="connectionStatus">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Connecting...</span>
+                </span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Configuration Banner -->
+    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 12px 20px; text-align: center; font-weight: 500; box-shadow: 0 2px 8px rgba(0,0,0,0.15); border-bottom: 2px solid rgba(255,255,255,0.2);">
+        <span style="font-size: 16px; margin-right: 15px;">📊 Current Configuration:</span>
+        <span style="background: rgba(255,255,255,0.2); padding: 6px 12px; border-radius: 4px; margin: 0 8px; font-family: 'Monaco', 'Courier New', monospace;">7 FPS per camera</span>
+        <span style="margin: 0 8px;">|</span>
+        <span style="background: rgba(255,255,255,0.2); padding: 6px 12px; border-radius: 4px; margin: 0 8px;">Optimized for 12 cameras</span>
+        <span style="margin: 0 8px;">|</span>
+        <span style="background: rgba(255,255,255,0.2); padding: 6px 12px; border-radius: 4px; margin: 0 8px;">GPU: RTX 3060</span>
+    </div>
+
+    <!-- Main Container -->
+    <div class="container">
+        <!-- Camera Control Panel -->
+        <section class="panel control-panel">
+            <h2 class="panel-title">Camera Control</h2>
+
+            <div class="control-row">
+                <label for="channelInput">Channel:</label>
+                <input type="number" id="channelInput" min="1" max="30" value="1" class="input-number">
+                <button id="startCameraBtn" class="btn btn-start">Start Camera</button>
+                <button id="stopCameraBtn" class="btn btn-stop">Stop Camera</button>
+                <button id="stopAllBtn" class="btn btn-stop-all">Stop All</button>
+            </div>
+
+            <div class="camera-grid-selector">
+                <h3>Quick Select (1-30)</h3>
+                <div class="camera-buttons" id="cameraButtons"></div>
+            </div>
+
+            <div class="active-cameras-list">
+                <h3>Active Cameras: <span id="activeCameraCount">0</span></h3>
+                <div id="activeCamerasList"></div>
+            </div>
+        </section>
+
+        <!-- Live Video Grid -->
+        <section class="panel video-panel">
+            <h2 class="panel-title">Live Camera Feeds</h2>
+            <div class="video-grid" id="videoGrid">
+                <div class="no-videos">
+                    <p>No active camera feeds</p>
+                    <p class="hint">Start cameras above to see live detection streams</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- System Stats Cards -->
+        <section class="stats-grid">
+            <!-- GPU Stats -->
+            <div class="stat-card">
+                <h3 class="stat-title">GPU Usage</h3>
+                <div class="stat-value" id="gpuUsage">--</div>
+                <div class="stat-detail" id="gpuDetail">-</div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="gpuProgress"></div>
+                </div>
+            </div>
+
+            <!-- CPU Stats -->
+            <div class="stat-card">
+                <h3 class="stat-title">CPU Usage</h3>
+                <div class="stat-value" id="cpuUsage">--</div>
+                <div class="stat-detail" id="cpuDetail">-</div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="cpuProgress"></div>
+                </div>
+            </div>
+
+            <!-- Memory Stats -->
+            <div class="stat-card">
+                <h3 class="stat-title">Memory</h3>
+                <div class="stat-value" id="memoryUsage">--</div>
+                <div class="stat-detail" id="memoryDetail">-</div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="memoryProgress"></div>
+                </div>
+            </div>
+
+            <!-- FPS Stats -->
+            <div class="stat-card">
+                <h3 class="stat-title">Total FPS</h3>
+                <div class="stat-value" id="totalFps">--</div>
+                <div class="stat-detail">Combined processing rate</div>
+            </div>
+
+            <!-- Inference Stats -->
+            <div class="stat-card">
+                <h3 class="stat-title">Inference Time</h3>
+                <div class="stat-value" id="inferenceTime">--</div>
+                <div class="stat-detail" id="inferenceDetail">-</div>
+            </div>
+
+            <!-- Queue Stats -->
+            <div class="stat-card">
+                <h3 class="stat-title">Inference Queue</h3>
+                <div class="stat-value" id="queueDepth">--</div>
+                <div class="stat-detail" id="queueDetail">-</div>
+            </div>
+        </section>
+
+        <!-- CPU Cores Visualization -->
+        <section class="panel">
+            <h2 class="panel-title">CPU Cores</h2>
+            <div class="cpu-cores" id="cpuCores"></div>
+        </section>
+
+        <!-- Performance Charts -->
+        <section class="panel">
+            <h2 class="panel-title">Performance Metrics</h2>
+            <div class="chart-container">
+                <canvas id="fpsChart"></canvas>
+            </div>
+        </section>
+
+        <!-- Camera Details Table -->
+        <section class="panel">
+            <h2 class="panel-title">Camera Details</h2>
+            <div class="table-container">
+                <table class="camera-table" id="cameraTable">
+                    <thead>
+                        <tr>
+                            <th>Channel</th>
+                            <th>Status</th>
+                            <th>FPS</th>
+                            <th>Decode</th>
+                            <th>Inference</th>
+                            <th>Lag</th>
+                            <th>Detections</th>
+                            <th>Resolution</th>
+                            <th>HW Accel</th>
+                        </tr>
+                    </thead>
+                    <tbody id="cameraTableBody">
+                        <tr>
+                            <td colspan="9" class="no-data">No active cameras</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Console Log -->
+        <section class="panel">
+            <h2 class="panel-title">Event Log</h2>
+            <div class="console-log" id="consoleLog"></div>
+        </section>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
